@@ -11,6 +11,10 @@ extern "C"
 {
 #endif
 void init_sdl_disp();
+/* Non-zero once the user closed the simulator window or SDL received SIGINT/SIGTERM.
+ * The SDL backend swallows those events so LVGL's driver does not lv_deinit() + exit()
+ * from inside a timer; cp0_lvgl_run() polls this and tears down in order instead. */
+int cp0_sdl_quit_requested(void);
 void init_sdl_input();
 void init_freambuffer_disp();
 void init_input();

@@ -16,6 +16,7 @@
 
 #include "input_keys.h"
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,6 +26,28 @@ static const char *getenv_default(const char *name, const char *dflt)
 {
     const char *value = getenv(name);
     return (value && value[0] != '\0') ? value : dflt;
+}
+
+static atomic_int s_quit_requested = 0;
+
+int cp0_sdl_quit_requested(void)
+{
+    return atomic_load(&s_quit_requested);
+}
+
+/* Runs on whichever thread queues the event (SDL's signal handler included), so it
+ * only records the request. Returning 0 drops the event before LVGL's SDL driver
+ * sees it: its SDL_QUIT path calls lv_deinit() and exit() mid-timer, which runs
+ * static destructors while pages, threads and LVGL objects are still alive. */
+static int quit_event_filter(void *userdata, SDL_Event *event)
+{
+    (void)userdata;
+    if (event->type == SDL_QUIT ||
+        (event->type == SDL_WINDOWEVENT && event->window.event == SDL_WINDOWEVENT_CLOSE)) {
+        atomic_store(&s_quit_requested, 1);
+        return 0;
+    }
+    return 1;
 }
 
 void init_sdl_disp(void)
@@ -46,6 +69,7 @@ void init_sdl_disp(void)
     }
 
     lv_sdl_window_set_title(disp, getenv_default("LV_SDL_WINDOW_TITLE", "M5CardputerZero"));
+    SDL_SetEventFilter(quit_event_filter, NULL);
     pthread_mutex_unlock(&init_mutex);
 }
 

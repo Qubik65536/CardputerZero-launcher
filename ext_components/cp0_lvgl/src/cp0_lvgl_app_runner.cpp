@@ -13,6 +13,9 @@
 #include "cp0_runner_contract.hpp"
 #include "cp0_runner_shutdown.hpp"
 #include "hal_lvgl_bsp.h"
+#if defined(HAL_PLATFORM_SDL)
+#include "sdl/sdl_lvgl.h"
+#endif
 
 #include <chrono>
 #include <cerrno>
@@ -96,6 +99,15 @@ void wait_for_lvgl()
     do {
         result = sem_wait(&lvgl_sem);
     } while (result != 0 && errno == EINTR);
+#endif
+}
+
+bool platform_quit_requested()
+{
+#if defined(HAL_PLATFORM_SDL)
+    return cp0_sdl_quit_requested() != 0;
+#else
+    return false;
 #endif
 }
 
@@ -225,9 +237,12 @@ int cp0_lvgl_run(Cp0LvglRunOptions options)
         lv_obj_invalidate(lv_screen_active());
         lv_refr_now(nullptr);
 
-        while (!options.should_quit || !options.should_quit()) {
+        auto quit_requested = [&] {
+            return platform_quit_requested() || (options.should_quit && options.should_quit());
+        };
+        while (!quit_requested()) {
             uint32_t milliseconds = lv_timer_handler();
-            if (options.should_quit && options.should_quit())
+            if (quit_requested())
                 break;
             if (milliseconds == LV_NO_TIMER_READY)
                 wait_for_lvgl();
