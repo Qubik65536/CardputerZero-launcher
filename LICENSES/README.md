@@ -20,6 +20,7 @@ selection inventory is in [OPEN_SOURCE_COMPONENTS.md](../docs/OPEN_SOURCE_COMPON
 | nlohmann-json-MIT.txt | Standard MIT text with 2013–2023 Niels Lohmann attribution from the emulator's vendor/nlohmann/json.hpp |
 | libv4l-host-copyright.txt | /usr/share/doc/libv4l-0t64/copyright on the audit host; reference only, not claimed to match CameraApp's target package version |
 | libv4l-1.32.0-copyright.txt | usr/share/doc/libv4l-0t64/copyright from Ubuntu libv4l-0t64_1.32.0-2ubuntu1_arm64.deb, matching CameraApp's libv4l-dev package version |
+| Unscii-public-domain.txt | Public-domain statement for Unscii (author's site http://viznut.fi/unscii/); glyphs taken from SDK/github_source/lvgl/lvgl_9_5/lvgl/src/font/lv_font_unscii_8.c |
 | GPL-2.0.txt, LGPL-2.0.txt, LGPL-2.1.txt | Full standard texts from /usr/share/common-licenses/GPL-2, LGPL-2 and LGPL-2.1, referenced by the v4l-utils copyright record |
 
 The target libv4l copyright was fetched from
