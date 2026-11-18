@@ -40,7 +40,12 @@ public:
     LockscreenBackgroundCache() = default;
     LockscreenBackgroundCache(const LockscreenBackgroundCache &) = delete;
     LockscreenBackgroundCache &operator=(const LockscreenBackgroundCache &) = delete;
-    ~LockscreenBackgroundCache() { reset(); }
+    ~LockscreenBackgroundCache()
+    {
+        // This is a static: the SDL driver calls lv_deinit() and then exit() when the
+        // window closes, so LVGL's image cache may already be gone. Nothing to release then.
+        if (lv_is_initialized()) reset();
+    }
 
     bool load(const std::string &path)
     {
