@@ -13,6 +13,8 @@ UI は **SquareLine Studio 1.5.0** によって生成され、ローカルデバ
 
 ---
 
+**自分のアプリを作りたい場合**は、[アプリ開発ガイド（英語）](docs/app-development/README.md)を参照してください。C++（LVGL）・Rust・Zig・OCaml のテンプレート、デスクトップシミュレーター、パッケージングとデプロイ方法をまとめています。macOS でのネイティブ SDL2 シミュレーターと各プロジェクトのビルド・実行方法は [bundled projects](docs/app-development/bundled-projects.md) にあります。
+
 ## プロジェクト構成
 
 ```

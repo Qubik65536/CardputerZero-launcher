@@ -17,6 +17,8 @@ UI 界面由 **SquareLine Studio 1.5.0** 生成，支持 SDL2 仿真模式（本
 
 ---
 
+**想开发自己的应用？** 请阅读[应用开发指南（英文）](docs/app-development/README.md)：提供 C++（LVGL）、Rust、Zig、OCaml 模板、桌面模拟器以及打包与部署说明。macOS 上的原生 SDL2 模拟器与各项目的编译运行方法见 [bundled projects](docs/app-development/bundled-projects.md)。
+
 ## 项目结构
 
 ```
