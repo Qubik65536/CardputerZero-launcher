@@ -27,8 +27,16 @@ lvgl_component = list(filter(lambda x: x['target'] == 'lvgl_component', env['COM
 toolchain_sysroot = os.environ.get('CONFIG_TOOLCHAIN_SYSROOT', '') or '/'
 
 if 'CONFIG_V9_5_LV_USE_SDL' in os.environ:
-    lvgl_component['REQUIREMENTS'] += ['SDL2']
-    lvgl_component['INCLUDE'] += ['/usr/include/SDL2']
+    sdl2_cflags = pkg_config_cflags('sdl2')
+    if sdl2_cflags:
+        # pkg-config knows where SDL2 lives (Homebrew, MSYS2, distro packages).
+        lvgl_component['DEFINITIONS'] += sdl2_cflags
+        sdl2_ldflags = pkg_config_ldflags('sdl2')
+        lvgl_component['REQUIREMENTS'] += [flag for flag in sdl2_ldflags if flag.startswith('-l')]
+        lvgl_component['LDFLAGS'] += [flag for flag in sdl2_ldflags if not flag.startswith('-l')]
+    else:
+        lvgl_component['REQUIREMENTS'] += ['SDL2']
+        lvgl_component['INCLUDE'] += ['/usr/include/SDL2']
     lvgl_component['DEFINITIONS'] += ['-D_REENTRANT']
 
 if 'CONFIG_V9_5_LV_USE_FREETYPE' in os.environ:

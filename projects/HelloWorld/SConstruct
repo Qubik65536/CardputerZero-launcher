@@ -28,8 +28,12 @@ if os.environ.get("CardputerZero", '') == 'y':
     os.environ["CONFIG_DEFAULT_FILE"] = "linux_x86_cross_cp0_config_defaults.mk"
 
 if os.environ.get("CONFIG_DEFAULT_FILE") == None:
-    if platform.machine() == 'x86_64':
+    if platform.system() == 'Darwin':
+        os.environ["CONFIG_DEFAULT_FILE"] = "darwin_config_defaults.mk"
+    elif platform.machine() == 'x86_64':
         os.environ["CONFIG_DEFAULT_FILE"] = "linux_x86_sdl2_config_defaults.mk"
+    else:
+        os.environ["CONFIG_DEFAULT_FILE"] = "config_defaults.mk"
 
 # The SDK only generates Kconfig output when global_config.mk is absent. Invalidate
 # generated configuration when callers switch between SDL and cross defaults.
