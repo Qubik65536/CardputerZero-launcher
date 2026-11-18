@@ -17,5 +17,5 @@ docker image inspect "$image" >/dev/null 2>&1 || docker build -t "$image" "$here
 docker run --rm --platform linux/arm64 --user "$(id -u):$(id -g)" -e HOME=/tmp \
     -v "$app":/app -w /app "$image" \
     sh -c 'dune build --root . --build-dir _build_device --profile release ./src/main.exe &&
-           cp _build_device/default/src/main.exe device/hello-cardputer'
+           cp -f _build_device/default/src/main.exe device/hello-cardputer'
 echo "built $here/hello-cardputer"
