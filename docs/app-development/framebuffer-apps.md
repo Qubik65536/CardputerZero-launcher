@@ -76,6 +76,9 @@ set, shows the screen and turns your key presses into Linux key codes (arrows,
 letters, digits, ENTER, ESC, BACKSPACE, TAB, SPACE, punctuation). Closing the
 window stops the app.
 
+To see the app inside the device frame, or open it from the launcher's home
+screen, use the [emulator](emulator.md): `cardputer-zero-emu --fb -- <command>`.
+
 ### Automated checks (no window)
 
 ```bash

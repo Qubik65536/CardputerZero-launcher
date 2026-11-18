@@ -72,6 +72,7 @@ run its simulator through linux-sim (below).
 cd projects/CardputerZero-Emulator
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j8
 cd build && ./cardputer-zero-emu                      # or: ./cardputer-zero-emu apps/libUserDemo.dylib
+# Your own apps in it: ./cardputer-zero-emu --fb -- <app>, or scripts/emulator_install.py (emulator.md)
 
 # Keyboard-Guide
 cd projects/Keyboard-Guide/main_Keyboard-Guide

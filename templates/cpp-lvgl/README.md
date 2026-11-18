@@ -16,6 +16,14 @@ scons -j8                          # picks the macOS or Linux SDL2 profile
 cd dist && ./hello-cardputer       # Up/Down change the number, ESC quits
 ```
 
+In the device emulator (build it once, see `docs/app-development/emulator.md`):
+
+```bash
+EMU=../../projects/CardputerZero-Emulator/build/cardputer-zero-emu
+scons -j8 && $EMU --fb -- dist/hello-cardputer
+python3 ../../scripts/emulator_install.py .     # or: add it to the emulator's home screen
+```
+
 ## Build for the device
 
 ```bash

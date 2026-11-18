@@ -15,6 +15,7 @@ cd projects/PixelPet
 
 dune build
 ../../scripts/fbsim/fbsim -- ./_build/default/src/main.exe     # desktop
+#   or in the emulator: cardputer-zero-emu --fb -- _build/default/src/main.exe   (see emulator.md)
 
 ./device/build-device.sh                             # device/pixel-pet (aarch64), needs Docker
 python3 ../../scripts/package_app.py .               # packages/pixel-pet_0.1.0_arm64.deb

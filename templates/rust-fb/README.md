@@ -17,6 +17,14 @@ Full guide: [docs/app-development/rust.md](../../docs/app-development/rust.md)
 ../../scripts/fbsim/fbsim -- cargo run             # F/X/Z/C or arrows move, ENTER color, ESC quits
 ```
 
+In the device emulator (build it once, see `docs/app-development/emulator.md`):
+
+```bash
+EMU=../../projects/CardputerZero-Emulator/build/cardputer-zero-emu
+cargo build && $EMU --fb -- target/debug/hello-cardputer
+python3 ../../scripts/emulator_install.py .     # or: add it to the emulator's home screen
+```
+
 ## Build for the device
 
 ```bash

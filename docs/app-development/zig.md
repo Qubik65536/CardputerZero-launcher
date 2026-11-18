@@ -13,6 +13,7 @@ python3 scripts/new_app.py zig-fb "Pixel Pet"        # -> projects/PixelPet/
 cd projects/PixelPet
 
 zig build sim                                        # desktop, in fbsim (build scripts/fbsim first)
+#   or in the emulator: cardputer-zero-emu --fb -- zig-out/bin/pixel-pet   (see emulator.md)
 zig build device                                     # zig-out/device/pixel-pet: static aarch64 binary
 python3 ../../scripts/package_app.py .               # packages/pixel-pet_0.1.0_arm64.deb
 ```

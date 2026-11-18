@@ -22,8 +22,8 @@ and install it on the device.
 The three `*-fb` templates share one design: the app writes RGB565 pixels to the
 Linux framebuffer and reads key presses from the keyboard's evdev device. These
 are plain files, so no graphics library, binding or SDK is needed. On your computer,
-`fbsim` (a small SDL2 window) stands in for both files, so the code you test is
-exactly the code that runs on the device.
+`fbsim` (a small SDL2 window) or the [emulator](emulator.md) stands in for both
+files, so the code you test is exactly the code that runs on the device.
 
 ## 10-minute quick start (Rust example; the others are the same shape)
 
@@ -38,6 +38,8 @@ cd projects/PixelPet
 
 # 3. Run it on your computer
 ../../scripts/fbsim/fbsim -- cargo run                  # F/X/Z/C or arrows move, ESC quits
+#    ...or inside the device emulator (see emulator.md)
+../../projects/CardputerZero-Emulator/build/cardputer-zero-emu --fb -- cargo run
 
 # 4. Build for the device and package it
 cargo build --release --target aarch64-unknown-linux-gnu
@@ -75,6 +77,7 @@ Details: [device reference](device-reference.md).
 | [Setup](setup.md) | Installing everything on macOS, Linux and Windows |
 | [Bundled projects](bundled-projects.md) | Building and running every project in `projects/` (good first test of your setup) |
 | [C++ / LVGL](cpp-lvgl.md) | LVGL pages, widgets, keys, fonts, images, platform services |
+| [Emulator](emulator.md) | Running your app in the device emulator, directly or from its home screen; scripted tests |
 | [Framebuffer apps](framebuffer-apps.md) | The shared model of the Rust/Zig/OCaml templates: pixels, keys, fbsim, headless tests, images, running on the device |
 | [Rust](rust.md) · [Zig](zig.md) · [OCaml](ocaml.md) | Each language's toolchain, API and recipes |
 | [Terminal apps](terminal-apps.md) | Text programs in any language, terminal size and keys |
@@ -89,6 +92,8 @@ Details: [device reference](device-reference.md).
 | `scripts/new_app.py <template> "Name"` | Creates an app from a template, renamed |
 | `scripts/fbsim/fbsim -- <app>` | Desktop window that stands in for the device screen and keyboard |
 | `scripts/fbsim/headless.py --keys ... --png ... -- <app>` | Same, without a window: scripted keys, screenshot (for CI and tests) |
+| `cardputer-zero-emu --fb -- <app>` | Runs the app in the device emulator (`projects/CardputerZero-Emulator`) |
+| `scripts/emulator_install.py <app-dir>` | Adds the app to the emulator's home screen |
 | `scripts/package_app.py <app-dir>` | Builds the arm64 `.deb` and checks the launcher's rules |
 | `scripts/make_app_icon.py XY -o icon.png` | Makes a 100x100 placeholder icon |
 | `scripts/linux-sim/linux-sim.sh` | Builds/runs/tests Linux-only projects in Docker, viewable over VNC |

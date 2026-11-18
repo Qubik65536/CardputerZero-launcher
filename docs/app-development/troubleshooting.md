@@ -66,6 +66,9 @@ group, which also takes background children with it.
 | Zig: errors in `std.Io` / `std.posix` | Use Zig 0.17.x; other versions have different standard library APIs |
 | OCaml: device build fails with `exec format error` in Docker | Your Docker cannot run arm64 containers: enable QEMU emulation, or build on the device |
 | fbsim: window stays black | The app has not written a frame yet, or it is not using `CARDPUTER_FB`. Check its stderr in the terminal |
+| Emulator: app missing from the home screen | Run `scripts/emulator_install.py` after building the desktop version; the launcher's stderr says why it skipped an entry (`applications_load: skip ...`) |
+| Emulator: `emulator_install.py` says "Linux build for another CPU" | That is the device build; build for your computer and set `desktop_binary` |
+| Emulator: the app opens its own window | It ignores `CARDPUTER_FB`. LVGL apps need a cp0_lvgl from this repository (rebuild after updating) |
 
 ## Simulator vs. device differences
 

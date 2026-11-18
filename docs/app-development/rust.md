@@ -13,6 +13,7 @@ python3 scripts/new_app.py rust-fb "Pixel Pet"       # -> projects/PixelPet/
 cd projects/PixelPet
 
 ../../scripts/fbsim/fbsim -- cargo run               # desktop (F/X/Z/C or arrows, ENTER, ESC)
+#   or in the emulator: cardputer-zero-emu --fb -- cargo run   (see emulator.md)
 
 rustup target add aarch64-unknown-linux-gnu          # once
 cargo build --release --target aarch64-unknown-linux-gnu

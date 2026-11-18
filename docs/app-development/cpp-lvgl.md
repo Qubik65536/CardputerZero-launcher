@@ -17,9 +17,16 @@ python3 scripts/new_app.py cpp-lvgl "Weather Station"    # -> projects/WeatherSt
 cd projects/WeatherStation
 
 scons -j8 && (cd dist && ./weather-station)               # simulator window
+#   or in the emulator: cardputer-zero-emu --fb -- dist/weather-station   (see emulator.md)
 CONFIG_DEFAULT_FILE=linux_x86_cross_cp0_config_defaults.mk scons -j8   # device binary in dist/
 python3 ../../scripts/package_app.py .                    # packages/weather-station_0.1.0_arm64.deb
 ```
+
+The desktop build opens its own window when run on its own. Started by
+`fbsim`, `headless.py` or the [emulator](emulator.md) (which set
+`CARDPUTER_FB`), it draws into their framebuffer and reads their keys instead,
+so the same binary also works for screenshots and scripted tests:
+`python3 ../../scripts/fbsim/headless.py --keys "f f enter" --png shot.png -- dist/weather-station`.
 
 The first device build downloads the device sysroot (~440 MB). Profiles:
 

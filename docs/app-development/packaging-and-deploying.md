@@ -24,6 +24,7 @@ Every template has one:
 | `name` | Shown on the home screen (also set in the `.desktop` file) |
 | `version` | Starts with a digit; bump it for every release so `dpkg` upgrades |
 | `binary` | Path (relative to the app) of the device build: an aarch64 binary or a `#!` script |
+| `desktop_binary` | Optional: the build for your computer, used by `scripts/emulator_install.py` ([emulator](emulator.md)) |
 | `resources` | Optional, default `APPLaunch`: the folder with `applications/` and `share/` |
 | `depends` | Optional Debian packages your app needs beyond the launcher itself |
 
@@ -101,7 +102,7 @@ Before submitting, check:
 - the package installs and starts on a device, and ESC returns to the home screen;
 - the icon is a 100x100 PNG and the name fits under the icon;
 - UI text is 12 px or larger;
-- screenshots: `scripts/fbsim/headless.py --png` for framebuffer apps; for LVGL apps, capture the simulator window (the launcher's screenshot hotkey is paused while an app runs).
+- screenshots: `scripts/fbsim/headless.py --png`, or `EMU_TEST_SCREENSHOT` in the [emulator](emulator.md); both work for framebuffer and LVGL apps (the launcher's screenshot hotkey is paused while an app runs).
 
 ## Manual packages
 

@@ -19,6 +19,14 @@ zig build sim                      # F/X/Z/C or arrows move, ENTER color, ESC qu
 
 If the app lives elsewhere: `zig build sim -Dfbsim=/path/to/launcher/scripts/fbsim/fbsim`.
 
+In the device emulator (build it once, see `docs/app-development/emulator.md`):
+
+```bash
+EMU=../../projects/CardputerZero-Emulator/build/cardputer-zero-emu
+zig build && $EMU --fb -- zig-out/bin/hello-cardputer
+python3 ../../scripts/emulator_install.py .     # or: add it to the emulator's home screen
+```
+
 ## Build for the device
 
 ```bash
