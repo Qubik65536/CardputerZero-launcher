@@ -24,6 +24,39 @@ and [`docs/OPEN_SOURCE_COMPONENTS.md`](docs/OPEN_SOURCE_COMPONENTS.md).
 
 ---
 
+## App Development Docs
+
+All of these live in [`docs/app-development/`](docs/app-development/) and
+[`templates/`](templates/). Read them roughly in this order:
+
+| Doc | What it covers |
+| --- | --- |
+| [README](docs/app-development/README.md) | Start here: what an app is, picking a template, a 10-minute quick start, how the pieces fit together, and an index of every guide and tool |
+| [Setup](docs/app-development/setup.md) | Preparing your computer (macOS, Debian/Ubuntu, Windows): common tools, Python and SCons, per-language toolchains, the desktop simulator, a check that everything works, and reaching the device |
+| [Bundled projects](docs/app-development/bundled-projects.md) | Building and running every project in `projects/` as a desktop simulator and for the device, running Linux-only projects and test suites with the Docker-based `linux-sim`, and known issues |
+| [C++ / LVGL](docs/app-development/cpp-lvgl.md) | The `cpp-lvgl` template: create/run/ship, project tour, pages, keyboard, fonts, images and cp0_lvgl platform services |
+| [Framebuffer apps](docs/app-development/framebuffer-apps.md) | The model the Rust, Zig and OCaml templates share: drawing RGB565 pixels into the framebuffer, reading Linux input events, `fbsim` and `headless.py` for testing on your computer |
+| [Rust](docs/app-development/rust.md) | The `rust-fb` template: create/run/ship (cross-compiling for the device), project tour, common tasks, testing |
+| [Zig](docs/app-development/zig.md) | The `zig-fb` template: Zig 0.17, the static no-libc device binary, project tour, common tasks, testing |
+| [OCaml](docs/app-development/ocaml.md) | The `ocaml-fb` template: OCaml 5 with dune, why the device build uses Docker, project tour, common tasks, testing |
+| [Terminal apps](docs/app-development/terminal-apps.md) | Apps in any language that run in the launcher's built-in terminal (`Terminal=true`): the terminal, the keys your program receives, launching and exiting |
+| [Emulator](docs/app-development/emulator.md) | Testing apps in `CardputerZero-Emulator`: running a desktop build directly with `--fb`, installing it on the emulated home screen with `emulator_install.py`, and scripted keys and screenshots (`EMU_TEST_*`) |
+| [Packaging and deploying](docs/app-development/packaging-and-deploying.md) | `cardputer-app.json`, building an arm64 `.deb` with `package_app.py`, installing it on the device (and faster iteration while developing), publishing to the App Store, manual packages |
+| [Device reference](docs/app-development/device-reference.md) | Device facts checked against the launcher source: system, screen, keyboard and key codes, how the launcher runs your app, `.desktop` entries, running other tools |
+| [Troubleshooting](docs/app-development/troubleshooting.md) | Fixes by symptom: the app missing from the home screen, returning immediately, a garbled screen, dead keys, ESC not quitting, build errors, simulator vs. device differences; starts with where the logs are |
+
+Each template also has its own guide, which is copied into every new app:
+
+| Doc | What it covers |
+| --- | --- |
+| [Templates overview](templates/README.md) | The four templates side by side (language, UI approach, best use) and the `new_app.py` command that copies one |
+| [cpp-lvgl](templates/cpp-lvgl/README.md), [rust-fb](templates/rust-fb/README.md), [zig-fb](templates/zig-fb/README.md), [ocaml-fb](templates/ocaml-fb/README.md) | Quick reference for one template: run on your computer (fbsim or the emulator), build for the device, where things are |
+
+The `TEMPLATE.md` file in each template only marks the directory as a template
+for `new_app.py`; it is not copied into new apps.
+
+---
+
 ## Project Structure
 
 ```
