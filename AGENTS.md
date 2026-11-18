@@ -69,7 +69,8 @@ launcher/
 │   └── Keyboard-Guide/        # directory lives here; main_Keyboard-Guide/ is a [submodule] (currently uninitialized)
 ├── docs/                      # three parallel 13-part launcher guides (zh/en/ja) + topical docs (see §11)
 ├── scripts/                   # packaging / release / RPC / logging / hotplug scripts; app tooling:
-│                              #   new_app.py, package_app.py, fbsim/, linux-sim/, scons/cp0_host_toolchain.py
+│                              #   new_app.py, package_app.py, emulator_install.py, fbsim/, linux-sim/,
+│                              #   scons/cp0_host_toolchain.py
 ├── templates/                 # third-party app templates (cpp-lvgl, rust-fb, zig-fb, ocaml-fb)
 ├── LICENSES/                  # verbatim third-party licenses (this does NOT relicense the repo)
 ├── .github/workflows/         # CI: launcher-build.yml / launcher-release.yml / emulator-build.yml
@@ -509,6 +510,7 @@ docs/launcher工程详细说明.md / launcher-project-guide.md / launcher-projec
 | Change platform capabilities (audio/network/process/config…) | `ext_components/cp0_lvgl/AGENTS.md` + `docs/cp0_lvgl.md` | `ext_components/cp0_lvgl/`, syncing the trilingual docs + contracts + tests |
 | Change the camera | `docs/current-implementation-and-components.md` | `projects/CameraApp/` (note `main_CameraApp/` is a submodule) |
 | Change the emulator | `projects/CardputerZero-Emulator/` | CMake, not SCons |
+| Test an app in the emulator | `docs/app-development/emulator.md` | `cardputer-zero-emu --fb -- <app>`; `scripts/emulator_install.py`; host side of the fbsim contract: `scripts/fbsim/fbsim_protocol.h`, app side for LVGL apps: `ext_components/cp0_lvgl/src/sdl/sdl_fbsim.c` |
 | Debug a blank screen / boot failure | `docs/.../11-debugging-and-troubleshooting.md` | `journalctl --user -u APPLaunch.service -f` |
 | Debug an external app that never returns | §6.1 of this file + `tests/test_external_framebuffer_ownership.py` | `main/ui/launch.cpp` |
 | Write a third-party app (any language) | `docs/app-development/README.md` | `python3 scripts/new_app.py <template> "Name"`; templates in `templates/` |
