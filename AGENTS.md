@@ -68,7 +68,9 @@ launcher/
 │   ├── CameraApp/             # body lives here; main_CameraApp/ is a [submodule]
 │   └── Keyboard-Guide/        # directory lives here; main_Keyboard-Guide/ is a [submodule] (currently uninitialized)
 ├── docs/                      # three parallel 13-part launcher guides (zh/en/ja) + topical docs (see §11)
-├── scripts/                   # packaging / release / RPC / logging / hotplug scripts
+├── scripts/                   # packaging / release / RPC / logging / hotplug scripts; app tooling:
+│                              #   new_app.py, package_app.py, fbsim/, linux-sim/, scons/cp0_host_toolchain.py
+├── templates/                 # third-party app templates (cpp-lvgl, rust-fb, zig-fb, ocaml-fb)
 ├── LICENSES/                  # verbatim third-party licenses (this does NOT relicense the repo)
 ├── .github/workflows/         # CI: launcher-build.yml / launcher-release.yml / emulator-build.yml
 ├── .clang-format              # Google-derived, see §8
@@ -139,7 +141,7 @@ Dependency install is documented in the "编译程序" (Build) section of [`READ
 | `config_defaults.mk` | **Native build on device** (aarch64, FBDEV + EVDEV) |
 | `linux_x86_sdl2_config_defaults.mk` | **Linux host SDL2 simulator** (default for day-to-day work) |
 | `linux_x86_cross_cp0_config_defaults.mk` | Linux x86_64 → aarch64 cross-compile |
-| `darwin_config_defaults.mk` | macOS native SDL |
+| `darwin_config_defaults.mk` | macOS native SDL (Apple clang + Homebrew SDL2/FreeType; default on macOS) |
 | `mac_cross_cp0_config_defaults.mk` | macOS → aarch64 cross-compile |
 | `win_x86_sdl2_config_defaults.mk` | Windows MSYS2/MinGW SDL2 |
 | `win_x86_cross_config_defaults.mk` | Windows SysGCC → aarch64 cross-compile |
@@ -509,6 +511,9 @@ docs/launcher工程详细说明.md / launcher-project-guide.md / launcher-projec
 | Change the emulator | `projects/CardputerZero-Emulator/` | CMake, not SCons |
 | Debug a blank screen / boot failure | `docs/.../11-debugging-and-troubleshooting.md` | `journalctl --user -u APPLaunch.service -f` |
 | Debug an external app that never returns | §6.1 of this file + `tests/test_external_framebuffer_ownership.py` | `main/ui/launch.cpp` |
+| Write a third-party app (any language) | `docs/app-development/README.md` | `python3 scripts/new_app.py <template> "Name"`; templates in `templates/` |
+| Build/run every bundled project on macOS or Linux | `docs/app-development/bundled-projects.md` | macOS cross toolchain lookup: `scripts/scons/cp0_host_toolchain.py` |
+| Run Linux-only apps/tests from macOS | `scripts/linux-sim/linux-sim.sh --help` | Docker; VNC on localhost:5900 |
 
 ---
 
