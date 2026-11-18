@@ -97,6 +97,15 @@ pub fn makePanel(parent: *c.Obj, x: i32, y: i32, width: i32, height: i32, color:
     return panel;
 }
 
+/// Makes LVGL's default theme (dark, Montserrat 14) the app's theme, with `primary` as
+/// its accent color. Widgets created afterwards take their look from it; calling it again
+/// restyles the existing ones (the Widgets demo's Color row).
+pub fn setTheme(primary: u32) void {
+    const display = c.lv_display_get_default();
+    const theme = c.lv_theme_default_init(display, c.color(primary), c.lv_palette_main(.blue), true, &c.lv_font_montserrat_14);
+    c.lv_display_set_theme(display, theme);
+}
+
 /// One line of key help, centered at the bottom of a screen.
 pub fn makeHint(parent: *c.Obj, text: [*:0]const u8) *c.Obj {
     const hint = makeLabel(parent, text, &c.lv_font_montserrat_14, muted_color);

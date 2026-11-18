@@ -1,31 +1,42 @@
 // SPDX-FileCopyrightText: 2026 M5Stack Technology CO LTD
 // SPDX-License-Identifier: MIT
 
-//! Demo 4, widgets: a small form of real LVGL widgets (lv_textarea, lv_button,
-//! lv_slider, a -/+ counter, lv_roller, lv_switch) in an lv_group. F/X move the focus,
-//! Z/C change the value, ENTER presses; the text field takes typing.
+//! Demo 4, widgets: a form of stock LVGL widgets with the default theme, laid out with
+//! flex and driven by LVGL's own focus group and widget events: lv_textarea, lv_button,
+//! lv_slider, lv_spinbox, lv_dropdown, lv_switch, lv_checkbox. F/X move the focus, Z/C
+//! change the value, ENTER presses; the text area takes typing.
 //!
-//! How keys reach the widgets
-//! --------------------------
-//! cp0_lvgl delivers every key twice: first to the cp0_app key callback (main.zig's
-//! onKey: the Linux key code and the text it types), then through LVGL's keypad input
-//! device to the focused object of the page's lv_group, as LV_EVENT_KEY. That second
-//! path cannot drive a form on the CardputerZero: the keyboard has no arrow keys
-//! (F/X/Z/C turn into arrows, so they could not be typed into the text field), letters
-//! arrive as key codes rather than characters, and LVGL only moves the focus on
-//! LV_KEY_NEXT/LV_KEY_PREV, which the keyboard never sends.
+//! Stock LVGL, plus one adapter for the keyboard
+//! ---------------------------------------------
+//! Everything on this screen is plain LVGL:
+//!   - the look is LVGL's default theme (ui.setTheme(), which main.zig's setup() calls
+//!     before any widget exists). The widgets get sizes, never colors; the Color row runs
+//!     the theme again with another accent color and every widget follows;
+//!   - the layout is flex: a scrolling column of rows, each a label and widgets;
+//!   - the focus is an lv_group holding the form's widgets, which the keypad input device
+//!     uses while the screen shows. The focused widget gets LV_STATE_FOCUS_KEY (the theme
+//!     draws an outline) and scrolls into view;
+//!   - cp0_lvgl delivers every key twice: first to the cp0_app key callback (main.zig's
+//!     onKey; this screen uses it only for ESC and TAB), then through LVGL's keypad
+//!     input device to the focused widget as LV_EVENT_KEY: arrows (F/X/Z/C
+//!     on the CardputerZero), ENTER, ESC, BACKSPACE ... as LVGL's keys, and the character
+//!     for a key that types one. Each widget reacts the way it always does: the text area
+//!     takes typing and BACKSPACE, DEL, LEFT/RIGHT, HOME/END; ENTER clicks a button,
+//!     toggles the switch and the checkbox, opens the dropdown and picks an option;
+//!     LEFT/RIGHT move the slider; ESC closes the dropdown;
+//!   - the form reacts only to widget events (LV_EVENT_CLICKED, LV_EVENT_VALUE_CHANGED,
+//!     LV_EVENT_READY), so a mouse click in the simulator window does exactly what the
+//!     keys do.
 //!
-//! So while this screen shows it turns that path off (cp0_app_set_keypad_intercept)
-//! and handles the key callback itself, using LVGL's own machinery for the rest:
-//!   - the widgets sit in an lv_group: F/X call lv_group_focus_prev/next, and the
-//!     focused widget gets LV_STATE_FOCUSED, which its styles react to;
-//!   - Z/C and ENTER set the focused widget's value through its API and send the event
-//!     LVGL itself would send (LV_EVENT_VALUE_CHANGED, LV_EVENT_CLICKED);
-//!   - the form reacts to those events only, so a mouse click in the simulator window
-//!     (or a touch screen) works the same way as the keys;
-//!   - typed text goes into the lv_textarea with lv_textarea_add_text, and the keyboard
-//!     is in text mode (cp0_app_set_text_input) while the text field has the focus.
-//! The same works on the device and on the desktop.
+//! The CardputerZero keyboard needs one small adapter and one switch on top:
+//!   - Moving the focus. LVGL moves it only on LV_KEY_NEXT/LV_KEY_PREV, which the keyboard
+//!     never sends; it has no arrow keys either, so cp0_lvgl turns F/X/Z/C into
+//!     UP/DOWN/LEFT/RIGHT. focusKeysCb, an LV_EVENT_KEY preprocess handler on every widget
+//!     of the form, turns UP/DOWN into lv_group_focus_prev/next, except while the
+//!     dropdown's list is open (there UP/DOWN choose an option). (countKeysCb gives the
+//!     spinbox's LEFT/RIGHT, which would move between digits, to its value.)
+//!   - Typing. While the text area has the focus the keyboard is in text mode
+//!     (cp0_app_set_text_input), so F/X/Z/C type letters instead of acting as arrows.
 
 const std = @import("std");
 const c = @import("lvgl.zig");
@@ -33,29 +44,19 @@ const ui = @import("ui.zig");
 
 const Action = ui.Action;
 
-const field_color: u32 = 0x080A0E;
-const border_color: u32 = 0x3C4652;
-const face_color: u32 = 0x1C222A;
-
-/// The form's rows, top to bottom; the status line sits above them.
-const Row = enum { name, button, volume, count, color, sound };
-const row_labels = [_][*:0]const u8{ "Name", "Button", "Volume", "Count", "Color", "Sound" };
-const row_count = row_labels.len;
-const rows_top = 18;
-const row_height = 18;
-const widget_left = 72; // labels on the left, widgets from here
-const widget_width = 242;
-const slider_width = 176;
-const volume_step = 5;
+const form_top = 18; // below the status line
+const label_width = 62; // the column of row labels
 const max_name = 24;
-const press_ms = 10 * ui.frame_ms; // how long the button shows as pressed
+const form_hint = "F/X move  Z/C change  ENTER press";
+const typing_hint = "type a name  ENTER next";
 
 const Choice = struct {
     name: []const u8,
     color: u32,
 };
 
-/// The chooser's options: each template language and GitHub's color for it.
+/// The Color row: each template's language and GitHub's color for it, in the dropdown's
+/// order.
 const choices = [_]Choice{
     .{ .name = "Rust", .color = 0xDEA584 },
     .{ .name = "Zig", .color = 0xEC915C },
@@ -63,139 +64,157 @@ const choices = [_]Choice{
     .{ .name = "C++", .color = 0xF34B7D },
 };
 
-/// The roller's options, one per line.
+/// The dropdown's options, one per line.
 const choice_options = blk: {
     var options: [:0]const u8 = "";
     for (choices, 0..) |choice, index| options = options ++ (if (index == 0) "" else "\n") ++ choice.name;
     break :blk options;
 };
 
-fn defaultChoice() u32 {
+/// This template starts on its own language, Zig.
+const language_choice: u32 = blk: {
     for (choices, 0..) |choice, index| {
-        if (std.mem.eql(u8, choice.name, ui.language)) return @intCast(index);
+        if (std.mem.eql(u8, choice.name, ui.language)) break :blk index;
     }
-    return 0;
+    @compileError("ui.language is not one of the choices");
+};
+
+const key_preprocess = c.preprocess(.key);
+
+/// One row of the form: a transparent flex row holding a fixed-width label; the caller
+/// adds the row's widgets after it.
+fn makeRow(form: *c.Obj, text: [*:0]const u8) *c.Obj {
+    const row = c.lv_obj_create(form);
+    c.lv_obj_remove_style_all(row); // layout only: no background, border or padding
+    c.lv_obj_set_size(row, c.pct(100), c.size_content);
+    c.lv_obj_set_flex_flow(row, .row);
+    c.lv_obj_set_flex_align(row, .start, .center, .center);
+    c.setPadAll(row, 4, 0); // room for the theme's focus outline around the widgets
+    c.lv_obj_set_style_pad_column(row, 6, 0);
+    const label = c.lv_label_create(row);
+    c.lv_label_set_text(label, text);
+    c.lv_obj_set_width(label, label_width);
+    return row;
 }
 
-/// The form's widgets are styled from scratch (no theme), flat like the rest of the app.
-fn styleBox(obj: *c.Obj, background: u32) void {
-    c.lv_obj_set_style_bg_color(obj, c.color(background), 0);
-    c.lv_obj_set_style_bg_opa(obj, c.opa_cover, 0);
-    c.lv_obj_set_style_border_width(obj, 1, 0);
-    c.lv_obj_set_style_border_color(obj, c.color(border_color), 0);
-    c.lv_obj_set_style_text_font(obj, &c.lv_font_montserrat_14, 0);
-    c.lv_obj_set_style_text_color(obj, c.color(ui.text_color), 0);
+/// The default theme pads widgets for bigger screens. On 320 x 150 the form trims the
+/// vertical padding of the taller widgets to fit more rows.
+fn compact(widget: *c.Obj) void {
+    c.setPadVer(widget, 4, 0);
 }
 
-fn makeBoxButton(parent: *c.Obj, text: [*:0]const u8, x: i32, y: i32, width: i32) *c.Obj {
+fn makeButton(parent: *c.Obj, text: [*:0]const u8) *c.Obj {
     const button = c.lv_button_create(parent);
-    c.lv_obj_remove_style_all(button);
-    styleBox(button, face_color);
-    c.lv_obj_set_pos(button, x, y);
-    c.lv_obj_set_size(button, width, row_height);
+    compact(button);
     const label = c.lv_label_create(button);
     c.lv_label_set_text(label, text);
     c.lv_obj_center(label);
     return button;
 }
 
+/// The adapter: F/X (UP/DOWN) move the focus to the previous/next widget.
+fn focusKeysCb(event: *c.Event) callconv(.c) void {
+    const key = c.lv_event_get_key(event);
+    if (key != c.lv_key.up and key != c.lv_key.down) return;
+    const widget = c.lv_event_get_target_obj(event);
+    if (c.lv_obj_check_type(widget, &c.lv_dropdown_class) and c.lv_dropdown_is_open(widget)) return;
+    const group = c.lv_obj_get_group(widget) orelse return;
+    if (key == c.lv_key.up) c.lv_group_focus_prev(group) else c.lv_group_focus_next(group);
+    c.lv_event_stop_processing(event); // the widget itself never sees the key
+}
+
+/// Z/C (LEFT/RIGHT) step the spinbox's value; nothing else edits it (typed characters
+/// included: the spinbox is a text area underneath).
+fn countKeysCb(event: *c.Event) callconv(.c) void {
+    const spinbox = c.lv_event_get_target_obj(event);
+    const key = c.lv_event_get_key(event);
+    if (key == c.lv_key.up or key == c.lv_key.down) return; // focus moves
+    if (key == c.lv_key.left) c.lv_spinbox_decrement(spinbox) else if (key == c.lv_key.right) c.lv_spinbox_increment(spinbox);
+    c.lv_event_stop_processing(event);
+}
+
+/// ENTER in the one-line text area: on to the next widget. The ENTER key is still down;
+/// waiting for its release keeps it from clicking the newly focused button.
+fn nameReadyCb(event: *c.Event) callconv(.c) void {
+    const group = c.lv_obj_get_group(c.lv_event_get_target_obj(event)) orelse return;
+    c.lv_group_focus_next(group);
+    if (c.lv_indev_active()) |keypad| c.lv_indev_wait_release(keypad);
+}
+
+/// The spinbox's -/+ buttons, as in LVGL's spinbox example: a click steps once, holding
+/// the mouse button repeats.
+fn isStepEvent(event: *c.Event) bool {
+    const code = c.lv_event_get_code(event);
+    return code == .short_clicked or code == .long_pressed_repeat;
+}
+
+fn minusCb(event: *c.Event) callconv(.c) void {
+    if (isStepEvent(event)) c.lv_spinbox_decrement(c.eventUserData(c.Obj, event));
+}
+
+fn plusCb(event: *c.Event) callconv(.c) void {
+    if (isStepEvent(event)) c.lv_spinbox_increment(c.eventUserData(c.Obj, event));
+}
+
+/// The -/+ buttons are for the mouse: Z/C do the same from the keyboard. Keep them out of
+/// every focus group (lv_button_create adds a button to the default group, if there is one).
+fn makeStepButton(row: *c.Obj, text: [*:0]const u8) *c.Obj {
+    const button = makeButton(row, text);
+    c.lv_group_remove_obj(button);
+    return button;
+}
+
+/// The app ends by deleting the page, and the root object gets LV_EVENT_DELETE before its
+/// children are deleted. Deleting the group then means that deleting the focused widget
+/// moves no focus, so no focus callback runs on widgets that are already gone.
+fn rootDeletedCb(event: *c.Event) callconv(.c) void {
+    c.lv_group_delete(c.eventUserData(c.Group, event));
+}
+
 pub const Widgets = struct {
     screen: ui.Screen,
-    group: *c.Group = undefined,
-    bars: [row_count]*c.Obj = undefined,
-    labels: [row_count]*c.Obj = undefined,
-    widgets: [row_count]*c.Obj = undefined, // the focusable object of each row
+    group: *c.Group = undefined, // the form's focusable widgets, in F/X order
+    previous_group: ?*c.Group = null, // the keypad's group before this screen showed
+    status: *c.Obj = undefined,
+    form: *c.Obj = undefined, // the scrolling column of rows
+    hint: *c.Obj = undefined,
     name: *c.Obj = undefined,
-    button: *c.Obj = undefined,
     volume: *c.Obj = undefined,
     volume_value: *c.Obj = undefined,
-    counter: *c.Obj = undefined,
-    minus: *c.Obj = undefined,
-    plus: *c.Obj = undefined,
-    count_value: *c.Obj = undefined,
-    chooser: *c.Obj = undefined,
-    chooser_left: *c.Obj = undefined,
-    chooser_right: *c.Obj = undefined,
-    swatch: *c.Obj = undefined,
+    count: *c.Obj = undefined,
+    color: *c.Obj = undefined,
     sound: *c.Obj = undefined,
     sound_value: *c.Obj = undefined,
-    status: *c.Obj = undefined,
-    hint: *c.Obj = undefined,
-    release_timer: ?*c.Timer = null,
-    count: i32 = 0,
+    like: *c.Obj = undefined,
 
     pub fn title(_: *const Widgets) [*:0]const u8 {
         return "Widgets";
     }
 
-    fn accent(self: *const Widgets) u32 {
-        return choices[c.lv_roller_get_selected(self.chooser)].color;
+    fn setStatus(self: *Widgets, comptime format: []const u8, args: anytype) void {
+        var text: [64]u8 = undefined;
+        c.setText(self.status, std.fmt.bufPrint(&text, format, args) catch unreachable);
     }
 
-    fn setStatus(self: *Widgets, text: []const u8) void {
-        c.setText(self.status, text);
-    }
-
-    fn setCount(self: *Widgets, count: i32, status: []const u8) void {
-        self.count = count;
-        var number: [16]u8 = undefined;
-        c.setText(self.count_value, std.fmt.bufPrint(&number, "{d}", .{count}) catch unreachable);
-        self.setStatus(status);
-    }
-
-    /// The row markers that are not LVGL focus styles: accent bar, label colors, counter
-    /// and chooser decorations, the hint, and the keyboard mode.
-    fn refreshFocus(self: *Widgets) void {
-        const focused = c.lv_group_get_focused(self.group);
-        const accent_color = c.color(self.accent());
-        for (self.widgets, self.bars, self.labels) |widget, bar, label| {
-            const is_focused = focused == widget;
-            c.setHidden(bar, !is_focused);
-            c.lv_obj_set_style_text_color(label, if (is_focused) accent_color else c.color(ui.muted_color), 0);
-        }
-        const counter_border = if (focused == self.counter) accent_color else c.color(border_color);
-        c.lv_obj_set_style_border_color(self.minus, counter_border, 0);
-        c.lv_obj_set_style_border_color(self.plus, counter_border, 0);
-        const arrows = if (focused == self.chooser) accent_color else c.color(ui.muted_color);
-        c.lv_obj_set_style_text_color(self.chooser_left, arrows, 0);
-        c.lv_obj_set_style_text_color(self.chooser_right, arrows, 0);
-
-        const typing = focused == self.name;
-        c.lv_label_set_text(self.hint, if (typing) "type a name  ENTER next" else "F/X move  Z/C change  ENTER press");
+    /// The text area has the focus: keys type text, and the hint says so.
+    fn setTyping(self: *Widgets, typing: bool) void {
+        c.lv_label_set_text(self.hint, if (typing) typing_hint else form_hint);
         if (self.screen.shown()) c.cp0_app_set_text_input(@intFromBool(typing));
     }
 
-    /// The accent color is whatever the chooser picked; every focus style uses it.
-    fn applyAccent(self: *Widgets) void {
-        const color = c.color(self.accent());
-        c.lv_obj_set_style_border_color(self.name, color, c.state.focused);
-        c.lv_obj_set_style_bg_color(self.name, color, c.part.cursor | c.state.focused);
-        c.lv_obj_set_style_border_color(self.button, color, c.state.focused);
-        c.lv_obj_set_style_bg_color(self.button, color, c.state.pressed);
-        c.lv_obj_set_style_bg_color(self.volume, color, c.part.indicator);
-        c.lv_obj_set_style_text_color(self.chooser, color, c.part.selected);
-        c.lv_obj_set_style_bg_color(self.swatch, color, 0);
-        c.lv_obj_set_style_bg_color(self.sound, color, c.part.indicator | c.state.checked);
-        c.lv_obj_set_style_text_color(self.status, color, 0);
-        self.refreshFocus();
+    fn nameFocusCb(event: *c.Event) callconv(.c) void {
+        c.eventUserData(Widgets, event).setTyping(c.lv_event_get_code(event) == .focused);
     }
 
-    fn focusCb(group: *c.Group) callconv(.c) void {
-        const self: *Widgets = @ptrCast(@alignCast(c.lv_group_get_user_data(group) orelse return));
-        self.refreshFocus();
-    }
-
-    fn buttonClickedCb(event: *c.Event) callconv(.c) void {
+    fn helloClickedCb(event: *c.Event) callconv(.c) void {
         const self = c.eventUserData(Widgets, event);
         const name = std.mem.trim(u8, std.mem.span(c.lv_textarea_get_text(self.name)), " \t");
-        var text: [64]u8 = undefined;
-        self.setStatus(std.fmt.bufPrint(&text, "Hello, {s}!", .{if (name.len == 0) "stranger" else name}) catch unreachable);
+        self.setStatus("Hello, {s}!", .{if (name.len == 0) "stranger" else name});
     }
 
-    fn buttonReleaseCb(timer: *c.Timer) callconv(.c) void {
-        const self = c.timerUserData(Widgets, timer);
-        c.lv_obj_remove_state(self.button, c.state.pressed);
-        self.release_timer = null; // a one-shot timer deletes itself
+    fn addOneClickedCb(event: *c.Event) callconv(.c) void {
+        const count = c.eventUserData(Widgets, event).count;
+        c.lv_spinbox_set_value(count, c.lv_spinbox_get_value(count) + 1); // the spinbox reports the change
     }
 
     fn volumeChangedCb(event: *c.Event) callconv(.c) void {
@@ -203,277 +222,206 @@ pub const Widgets = struct {
         var number: [16]u8 = undefined;
         const value = std.fmt.bufPrint(&number, "{d}", .{c.lv_slider_get_value(self.volume)}) catch unreachable;
         c.setText(self.volume_value, value);
-        var text: [32]u8 = undefined;
-        self.setStatus(std.fmt.bufPrint(&text, "Volume {s}", .{value}) catch unreachable);
+        self.setStatus("Volume {s}", .{value});
     }
 
-    fn stepCount(self: *Widgets, step: i32) void {
-        var text: [32]u8 = undefined;
-        self.setCount(self.count + step, std.fmt.bufPrint(&text, "Count {d}", .{self.count + step}) catch unreachable);
-    }
-
-    fn minusClickedCb(event: *c.Event) callconv(.c) void {
-        c.eventUserData(Widgets, event).stepCount(-1);
-    }
-
-    fn plusClickedCb(event: *c.Event) callconv(.c) void {
-        c.eventUserData(Widgets, event).stepCount(1);
-    }
-
-    fn choiceChangedCb(event: *c.Event) callconv(.c) void {
+    fn countChangedCb(event: *c.Event) callconv(.c) void {
         const self = c.eventUserData(Widgets, event);
-        self.applyAccent();
-        var text: [32]u8 = undefined;
-        const choice = choices[c.lv_roller_get_selected(self.chooser)];
-        self.setStatus(std.fmt.bufPrint(&text, "Color {s}", .{choice.name}) catch unreachable);
+        self.setStatus("Count {d}", .{c.lv_spinbox_get_value(self.count)});
+    }
+
+    fn colorChangedCb(event: *c.Event) callconv(.c) void {
+        const self = c.eventUserData(Widgets, event);
+        const choice = choices[c.lv_dropdown_get_selected(self.color)];
+        ui.setTheme(choice.color); // every themed widget in the app takes the new accent color
+        c.lv_obj_set_style_text_color(self.status, c.color(choice.color), 0);
+        self.setStatus("Color {s}", .{choice.name});
     }
 
     fn soundChangedCb(event: *c.Event) callconv(.c) void {
         const self = c.eventUserData(Widgets, event);
-        const on_off = if (c.lv_obj_has_state(self.sound, c.state.checked)) "on" else "off";
-        c.setText(self.sound_value, on_off);
-        var text: [16]u8 = undefined;
-        self.setStatus(std.fmt.bufPrint(&text, "Sound {s}", .{on_off}) catch unreachable);
+        const on_off: [:0]const u8 = if (c.lv_obj_has_state(self.sound, c.state.checked)) "on" else "off";
+        c.lv_label_set_text(self.sound_value, on_off);
+        self.setStatus("Sound {s}", .{on_off});
     }
 
-    /// The app ends by deleting the page. Before the widgets go, drop the group (whose
-    /// focus callback would otherwise see them half-deleted) and the button timer.
-    fn rootDeletedCb(event: *c.Event) callconv(.c) void {
+    fn likeChangedCb(event: *c.Event) callconv(.c) void {
         const self = c.eventUserData(Widgets, event);
-        if (self.release_timer) |timer| c.lv_timer_delete(timer);
-        self.release_timer = null;
-        c.lv_group_delete(self.group);
+        self.setStatus("{s}", .{if (c.lv_obj_has_state(self.like, c.state.checked)) "Thanks!" else "Oh no"});
     }
 
-    fn makeName(self: *Widgets, y: i32) void {
-        const name = c.lv_textarea_create(self.screen.root);
+    /// Every focusable widget: into the group (F/X order is the order of these calls), the
+    /// adapter for F/X, and scrolled into view when it gets the focus.
+    fn addToForm(self: *Widgets, widget: *c.Obj) void {
+        c.lv_group_add_obj(self.group, widget);
+        c.onEvent(widget, key_preprocess, focusKeysCb, null);
+        c.lv_obj_add_flag(widget, c.obj_flag.scroll_on_focus);
+    }
+
+    fn makeNameRow(self: *Widgets) void {
+        const row = makeRow(self.form, "Name");
+        const name = c.lv_textarea_create(row);
         self.name = name;
-        c.lv_obj_remove_style_all(name);
-        styleBox(name, field_color);
         c.lv_textarea_set_one_line(name, true);
         c.lv_textarea_set_placeholder_text(name, "your name");
         c.lv_textarea_set_max_length(name, max_name);
-        c.setPadHor(name, 4, 0);
-        c.lv_obj_set_pos(name, widget_left, y);
-        c.lv_obj_set_size(name, widget_width, row_height);
-        c.lv_obj_set_style_text_color(name, c.color(ui.muted_color), c.part.textarea_placeholder);
-        // An empty focused field shows just the cursor: a solid block that does not blink.
-        c.lv_obj_set_style_text_opa(name, c.opa_transp, c.part.textarea_placeholder | c.state.focused);
-        c.lv_obj_set_style_bg_opa(name, c.opa_cover, c.part.cursor | c.state.focused);
-        c.lv_obj_set_style_pad_right(name, 4, c.part.cursor);
-        c.lv_obj_set_style_anim_duration(name, 0, c.part.cursor);
+        c.lv_obj_set_flex_grow(name, 1);
+        compact(name);
+        self.addToForm(name);
+        c.onEvent(name, .focused, nameFocusCb, self);
+        c.onEvent(name, .defocused, nameFocusCb, self);
+        c.onEvent(name, .ready, nameReadyCb, null);
     }
 
-    fn makeButton(self: *Widgets, y: i32) void {
-        self.button = makeBoxButton(self.screen.root, "Say hello", widget_left, y, 120);
-        c.lv_obj_set_style_text_color(self.button, c.color(ui.background_color), c.state.pressed);
-        c.onEvent(self.button, .clicked, buttonClickedCb, self);
+    fn makeButtonsRow(self: *Widgets) void {
+        const row = makeRow(self.form, "Buttons");
+        const hello = makeButton(row, "Say hello");
+        self.addToForm(hello);
+        c.onEvent(hello, .clicked, helloClickedCb, self);
+        const add_one = makeButton(row, "Count +1");
+        self.addToForm(add_one);
+        c.onEvent(add_one, .clicked, addOneClickedCb, self);
     }
 
-    fn makeVolume(self: *Widgets, y: i32) void {
-        const volume = c.lv_slider_create(self.screen.root);
+    fn makeVolumeRow(self: *Widgets) void {
+        const row = makeRow(self.form, "Volume");
+        const volume = c.lv_slider_create(row);
         self.volume = volume;
-        c.lv_obj_remove_style_all(volume);
-        c.lv_obj_set_pos(volume, widget_left, y + 7);
-        c.lv_obj_set_size(volume, slider_width, 4);
         c.lv_slider_set_range(volume, 0, 100);
         c.lv_slider_set_value(volume, 50, c.anim_off);
-        c.lv_obj_set_style_bg_color(volume, c.color(border_color), 0);
-        c.lv_obj_set_style_bg_opa(volume, c.opa_cover, 0);
-        c.lv_obj_set_style_bg_opa(volume, c.opa_cover, c.part.indicator);
-        // The knob is the 4 px track height grown by its padding: 6 x 14.
-        c.lv_obj_set_style_bg_color(volume, c.color(ui.muted_color), c.part.knob);
-        c.lv_obj_set_style_bg_color(volume, c.color(ui.text_color), c.part.knob | c.state.focused);
-        c.lv_obj_set_style_bg_opa(volume, c.opa_cover, c.part.knob);
-        c.setPadHor(volume, 1, c.part.knob);
-        c.setPadVer(volume, 5, c.part.knob);
+        c.lv_obj_set_flex_grow(volume, 1);
+        self.addToForm(volume);
         c.onEvent(volume, .value_changed, volumeChangedCb, self);
-
-        self.volume_value = ui.makeLabel(self.screen.root, "50", &c.lv_font_montserrat_14, ui.text_color);
-        c.lv_obj_set_pos(self.volume_value, widget_left + slider_width + 12, y + 1);
+        self.volume_value = c.lv_label_create(row);
+        c.lv_label_set_text(self.volume_value, "50");
+        c.lv_obj_set_width(self.volume_value, 30);
     }
 
-    fn makeCounter(self: *Widgets, y: i32) void {
-        // One focusable container holding "-", the value and "+".
-        self.counter = ui.makePanel(self.screen.root, widget_left, y, 108, row_height, ui.background_color, c.opa_transp);
-        self.minus = makeBoxButton(self.counter, "-", 0, 0, 24);
-        self.plus = makeBoxButton(self.counter, "+", 84, 0, 24);
-        c.onEvent(self.minus, .clicked, minusClickedCb, self);
-        c.onEvent(self.plus, .clicked, plusClickedCb, self);
-        self.count_value = ui.makeLabel(self.counter, "0", &c.lv_font_montserrat_14, ui.text_color);
-        c.lv_obj_set_width(self.count_value, 60);
-        c.lv_obj_set_style_text_align(self.count_value, .center, 0);
-        c.lv_obj_set_pos(self.count_value, 24, 1);
+    fn makeCountRow(self: *Widgets) void {
+        const row = makeRow(self.form, "Count");
+        const minus = makeStepButton(row, "-");
+        const count = c.lv_spinbox_create(row);
+        self.count = count;
+        c.lv_spinbox_set_range(count, -999, 999);
+        c.lv_spinbox_set_digit_format(count, 3, 0);
+        c.lv_obj_set_width(count, 64);
+        compact(count);
+        self.addToForm(count);
+        c.onEvent(count, key_preprocess, countKeysCb, null);
+        c.onEvent(count, .value_changed, countChangedCb, self);
+        const plus = makeStepButton(row, "+");
+        c.onEvent(minus, .all, minusCb, count);
+        c.onEvent(plus, .all, plusCb, count);
     }
 
-    fn makeChooser(self: *Widgets, y: i32) void {
-        const root = self.screen.root;
-        self.chooser_left = ui.makeLabel(root, "<", &c.lv_font_montserrat_14, ui.muted_color);
-        c.lv_obj_set_pos(self.chooser_left, widget_left, y + 1);
-        const chooser = c.lv_roller_create(root);
-        self.chooser = chooser;
-        c.lv_obj_remove_style_all(chooser);
-        c.lv_obj_set_style_text_font(chooser, &c.lv_font_montserrat_14, 0);
-        c.lv_obj_set_style_text_font(chooser, &c.lv_font_montserrat_14, c.part.selected);
-        c.lv_obj_set_style_text_align(chooser, .center, 0);
-        c.lv_roller_set_options(chooser, choice_options, .normal);
-        c.lv_roller_set_visible_row_count(chooser, 1);
-        c.lv_roller_set_selected(chooser, defaultChoice(), c.anim_off);
-        c.lv_obj_set_pos(chooser, widget_left + 12, y + 1);
-        c.lv_obj_set_width(chooser, 56);
-        c.onEvent(chooser, .value_changed, choiceChangedCb, self);
-        self.chooser_right = ui.makeLabel(root, ">", &c.lv_font_montserrat_14, ui.muted_color);
-        c.lv_obj_set_pos(self.chooser_right, widget_left + 72, y + 1);
-        self.swatch = ui.makePanel(root, widget_left + 88, y + 2, 14, row_height - 4, ui.language_color, c.opa_cover);
+    fn makeColorRow(self: *Widgets) void {
+        const row = makeRow(self.form, "Color");
+        const color = c.lv_dropdown_create(row);
+        self.color = color;
+        c.lv_dropdown_set_options(color, choice_options);
+        c.lv_dropdown_set_selected(color, language_choice);
+        c.lv_obj_set_width(color, 100);
+        compact(color);
+        self.addToForm(color);
+        c.onEvent(color, .value_changed, colorChangedCb, self);
     }
 
-    fn makeSwitch(self: *Widgets, y: i32) void {
-        const sound = c.lv_switch_create(self.screen.root);
+    fn makeSoundRow(self: *Widgets) void {
+        const row = makeRow(self.form, "Sound");
+        const sound = c.lv_switch_create(row);
         self.sound = sound;
-        c.lv_obj_remove_style_all(sound);
-        c.lv_obj_set_pos(sound, widget_left, y + 2);
-        c.lv_obj_set_size(sound, 32, row_height - 4);
-        c.lv_obj_set_style_bg_color(sound, c.color(border_color), 0);
-        c.lv_obj_set_style_bg_opa(sound, c.opa_cover, 0);
-        c.lv_obj_set_style_bg_opa(sound, c.opa_cover, c.part.indicator | c.state.checked);
-        c.lv_obj_set_style_bg_color(sound, c.color(ui.text_color), c.part.knob);
-        c.lv_obj_set_style_bg_opa(sound, c.opa_cover, c.part.knob);
-        c.setPadAll(sound, -2, c.part.knob);
-        c.lv_obj_set_style_outline_color(sound, c.color(ui.text_color), c.state.focused);
-        c.lv_obj_set_style_outline_width(sound, 1, c.state.focused);
-        c.lv_obj_set_style_outline_pad(sound, 2, c.state.focused);
         c.lv_obj_add_state(sound, c.state.checked);
+        self.addToForm(sound);
         c.onEvent(sound, .value_changed, soundChangedCb, self);
-
-        self.sound_value = ui.makeLabel(self.screen.root, "on", &c.lv_font_montserrat_14, ui.text_color);
-        c.lv_obj_set_pos(self.sound_value, widget_left + 40, y + 1);
+        self.sound_value = c.lv_label_create(row);
+        c.lv_label_set_text(self.sound_value, "on");
     }
 
-    fn rowTop(row: Row) i32 {
-        return rows_top + @as(i32, @backingInt(row)) * row_height;
+    fn makeLikeRow(self: *Widgets) void {
+        const row = makeRow(self.form, "Like");
+        const like = c.lv_checkbox_create(row);
+        self.like = like;
+        c.lv_checkbox_set_text(like, "I like LVGL");
+        self.addToForm(like);
+        c.onEvent(like, .value_changed, likeChangedCb, self);
     }
 
-    fn makeRows(self: *Widgets) void {
-        for (row_labels, &self.bars, &self.labels, 0..) |text, *bar, *label, index| {
-            const y: i32 = rows_top + @as(i32, @intCast(index)) * row_height;
-            bar.* = ui.makePanel(self.screen.root, 0, y, 3, row_height, ui.language_color, c.opa_cover);
-            label.* = ui.makeLabel(self.screen.root, text, &c.lv_font_montserrat_14, ui.muted_color);
-            c.lv_obj_set_pos(label.*, 8, y + 1);
-        }
-        self.makeName(rowTop(.name));
-        self.makeButton(rowTop(.button));
-        self.makeVolume(rowTop(.volume));
-        self.makeCounter(rowTop(.count));
-        self.makeChooser(rowTop(.color));
-        self.makeSwitch(rowTop(.sound));
-        self.widgets = .{ self.name, self.button, self.volume, self.counter, self.chooser, self.sound };
-    }
-
+    /// `self` must not move afterwards: LVGL callbacks hold pointers to it.
     pub fn init(self: *Widgets, parent: *c.Obj) void {
         self.* = .{ .screen = .init(parent) };
-        self.status = ui.makeLabel(self.screen.root, "Try every widget", &c.lv_font_montserrat_14, ui.language_color);
+        const root = self.screen.root;
+        self.status = ui.makeLabel(root, "Try every widget", &c.lv_font_montserrat_14, ui.language_color);
         c.lv_obj_set_pos(self.status, 8, 0);
-        _ = ui.makeDemoKeys(self.screen.root);
-        self.makeRows();
-        self.hint = ui.makeHint(self.screen.root, "");
+        _ = ui.makeDemoKeys(root);
+
+        // The form: a flex column that scrolls when the rows don't fit. It keeps the
+        // theme's scrollbar but not its card background.
+        const form = c.lv_obj_create(root);
+        self.form = form;
+        c.lv_obj_set_pos(form, 0, form_top);
+        c.lv_obj_set_size(form, ui.content_width, ui.hint_top - form_top);
+        c.lv_obj_set_style_bg_opa(form, c.opa_transp, 0);
+        c.lv_obj_set_style_border_width(form, 0, 0);
+        c.setPadAll(form, 2, 0);
+        c.lv_obj_set_style_pad_row(form, 0, 0);
+        c.lv_obj_set_flex_flow(form, .column);
+
+        self.hint = ui.makeHint(root, form_hint);
 
         self.group = c.lv_group_create();
-        c.lv_group_set_wrap(self.group, true);
-        for (self.widgets) |widget| c.lv_group_add_obj(self.group, widget);
-        c.lv_group_focus_obj(self.name);
-        c.lv_group_set_user_data(self.group, self);
-        c.lv_group_set_focus_cb(self.group, focusCb);
-        c.onEvent(self.screen.root, .delete, rootDeletedCb, self);
-        self.applyAccent();
-    }
+        c.lv_group_set_wrap(self.group, true); // X on the last widget goes back to the first
+        c.onEvent(root, .delete, rootDeletedCb, self.group);
 
-    /// ENTER on the button: show it pressed for a moment and click it.
-    fn pressButton(self: *Widgets) void {
-        c.lv_obj_add_state(self.button, c.state.pressed);
-        if (self.release_timer) |timer| c.lv_timer_delete(timer);
-        const timer = c.lv_timer_create(buttonReleaseCb, press_ms, self);
-        c.lv_timer_set_repeat_count(timer, 1);
-        self.release_timer = timer;
-        c.sendEvent(self.button, .clicked);
-    }
-
-    /// Z/C (or left/right): step the focused widget's value.
-    fn change(self: *Widgets, step: i32) void {
-        const focused = c.lv_group_get_focused(self.group);
-        if (focused == self.volume) {
-            const value = c.lv_slider_get_value(self.volume) + step * volume_step;
-            c.lv_slider_set_value(self.volume, std.math.clamp(value, 0, 100), c.anim_off);
-            c.sendEvent(self.volume, .value_changed);
-        } else if (focused == self.counter) {
-            c.sendEvent(if (step < 0) self.minus else self.plus, .clicked);
-        } else if (focused == self.chooser) {
-            const count: i32 = choices.len;
-            const selected: i32 = @intCast(c.lv_roller_get_selected(self.chooser));
-            c.lv_roller_set_selected(self.chooser, @intCast(@mod(selected + step, count)), c.anim_off);
-            c.sendEvent(self.chooser, .value_changed);
-        } else if (focused == self.sound) {
-            c.lv_obj_set_state(self.sound, c.state.checked, !c.lv_obj_has_state(self.sound, c.state.checked));
-            c.sendEvent(self.sound, .value_changed);
-        }
-    }
-
-    /// ENTER or SPACE on the focused widget.
-    fn activate(self: *Widgets) void {
-        const focused = c.lv_group_get_focused(self.group);
-        if (focused == self.button) {
-            self.pressButton();
-        } else if (focused == self.counter) {
-            self.setCount(0, "Count reset");
-        } else if (focused == self.chooser or focused == self.sound) {
-            self.change(1);
-        }
+        // The rows, top to bottom; F/X visit their widgets in this order.
+        self.makeNameRow();
+        self.makeButtonsRow();
+        self.makeVolumeRow();
+        self.makeCountRow();
+        self.makeColorRow();
+        self.makeSoundRow();
+        self.makeLikeRow();
     }
 
     pub fn onShow(self: *Widgets) void {
-        // Keys come only through the key callback while the form shows (see the top of this file).
-        c.cp0_app_set_keypad_intercept(1);
-        self.refreshFocus();
+        // The keypad input device(s) use the form's group while the screen shows. The key
+        // that opened the screen (4, ENTER, TAB) is still being handled:
+        // lv_indev_wait_release keeps it from reaching the focused widget (ENTER would
+        // leave the text area, 4 would be typed into it).
+        var next = c.lv_indev_get_next(null);
+        while (next) |indev| : (next = c.lv_indev_get_next(indev)) {
+            if (c.lv_indev_get_type(indev) != .keypad) continue;
+            self.previous_group = c.lv_indev_get_group(indev);
+            c.lv_indev_set_group(indev, self.group);
+            c.lv_indev_wait_release(indev);
+        }
+        // Focus a widget, now from the keypad, so it gets LV_STATE_FOCUS_KEY (the theme's
+        // outline) and its LV_EVENT_FOCUSED handlers run: the one that had the focus, or
+        // the first time the first one (hidden widgets can't take the focus, so none has
+        // it yet).
+        if (c.lv_group_get_focused(self.group)) |focused| c.lv_group_focus_obj(focused) else c.lv_group_focus_next(self.group);
+        // LVGL 9.5 does not grow the drawing area of a widget that was never drawn when its
+        // new state also changes its layout, as the text area's cursor style does; without
+        // this the first outline would be clipped away.
+        if (c.lv_group_get_focused(self.group)) |focused| c.lv_obj_refresh_ext_draw_size(focused);
     }
 
-    pub fn onHide(_: *Widgets) void {
-        c.cp0_app_set_keypad_intercept(0);
+    pub fn onHide(self: *Widgets) void {
+        c.lv_dropdown_close(self.color); // its list belongs to the LVGL screen, not to this container
+        var next = c.lv_indev_get_next(null);
+        while (next) |indev| : (next = c.lv_indev_get_next(indev)) {
+            if (c.lv_indev_get_group(indev) == self.group) c.lv_indev_set_group(indev, self.previous_group);
+        }
         c.cp0_app_set_text_input(0);
     }
 
     pub fn handleKey(self: *Widgets, key: *const c.Key) Action {
-        switch (key.code) {
-            ui.keys.esc => return .home,
-            ui.keys.tab => return .next,
-            // Real arrow keys always move the focus, even out of the text field.
-            ui.keys.up => {
-                c.lv_group_focus_prev(self.group);
-                return .stay;
-            },
-            ui.keys.down => {
-                c.lv_group_focus_next(self.group);
-                return .stay;
-            },
-            else => {},
-        }
-        if (c.lv_group_get_focused(self.group) == self.name) {
-            // In the text field F/X/Z/C are letters; ENTER moves on.
-            if (key.code == ui.keys.enter) {
-                c.lv_group_focus_next(self.group);
-            } else if (key.code == ui.keys.backspace) {
-                c.lv_textarea_delete_char(self.name);
-            } else if (ui.typedText(key) != null) {
-                c.lv_textarea_add_text(self.name, key.text);
-            }
-            return .stay;
-        }
-        if (ui.direction(key.code)) |direction| switch (direction) {
-            .up => c.lv_group_focus_prev(self.group),
-            .down => c.lv_group_focus_next(self.group),
-            .left => self.change(-1),
-            .right => self.change(1),
-        } else if (key.code == ui.keys.enter or key.code == ui.keys.space) {
-            self.activate();
-        }
-        return .stay;
+        // Only the app's keys; LVGL's keypad device delivers every key to the focused
+        // widget as well. ESC first closes an open dropdown list: LVGL gets the same ESC
+        // right after this and closes it.
+        return switch (key.code) {
+            ui.keys.esc => if (c.lv_dropdown_is_open(self.color)) .stay else .home,
+            ui.keys.tab => .next,
+            else => .stay,
+        };
     }
 };

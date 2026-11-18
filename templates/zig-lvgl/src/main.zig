@@ -110,6 +110,9 @@ var app_gpa: Allocator = undefined;
 
 /// cp0_app_run() calls this once, with the content area below the top bar.
 fn setup(content: *c.Obj, _: ?*anyopaque) callconv(.c) void {
+    // The display exists now and the app's widgets do not yet: set the theme first, so
+    // every widget is created with it.
+    ui.setTheme(ui.language_color);
     c.lv_obj_set_style_bg_color(content, c.color(ui.background_color), 0);
     c.lv_obj_set_style_bg_opa(content, c.opa_cover, 0);
     app.init(content, app_gpa);

@@ -11,9 +11,10 @@ SDL window on your desktop and full-screen on the device.
 It greets you with "Hello, Zig!" over a wallpaper and opens four demos:
 **Colors** (a spinning RGB triangle and a color wheel drawn on an
 `lv_canvas`), **Motion** (a glowing ball to push around, with live physics
-numbers), **REPL** (a terminal-style calculator) and **Widgets** (real LVGL
-widgets: text field, button, slider, counter, roller, switch, driven by the
-keyboard). F/X choose, ENTER opens, TAB goes to the next demo, ESC goes back
+numbers), **REPL** (a terminal-style calculator) and **Widgets** (stock LVGL
+widgets with the default theme, flex layout and a focus group: text area,
+buttons, slider, spinbox, dropdown, switch, checkbox, driven by the keyboard).
+F/X choose, ENTER opens, TAB goes to the next demo, ESC goes back
 (and quits from home). It is the same app as the C++ template `cpp-lvgl`.
 Keep what you need, delete the rest.
 
@@ -76,9 +77,9 @@ The app appears on the home screen within a few seconds.
 
 | Path | What |
 | --- | --- |
-| `src/main.zig` | Entry point and the app: `cp0_app_run`, the setup and key callbacks, showing one screen at a time. Start here. |
+| `src/main.zig` | Entry point and the app: `cp0_app_run`, the setup (sets the theme first) and key callbacks, showing one screen at a time. Start here. |
 | `src/lvgl.zig` | The C functions the app calls (LVGL and `cp0_app.h`), declared by hand, plus small helpers. Its header explains how to add more. |
-| `src/ui.zig` | Language name and color, palette, `Action`, key helpers, label/panel helpers, `Screen` (container + frame timer) |
+| `src/ui.zig` | Language name and color, palette, `setTheme()`, `Action`, key helpers, label/panel helpers, `Screen` (container + frame timer) |
 | `src/home.zig` | Home screen: wallpaper, greeting, menu |
 | `src/colors.zig`, `src/motion.zig`, `src/repl.zig`, `src/widgets.zig` | The four demos (`widgets.zig` explains how keys drive LVGL widgets on the device) |
 | `src/pixel_canvas.zig` | Pixel drawing on an `lv_canvas`: `fillRect`, `fillCircle`, `drawLine`, ... (used by Colors and Motion) |
