@@ -26,8 +26,13 @@ INCLUDE += ["ui"]
 lvgl_component = list(
     filter(lambda x: x["target"] == "lvgl_component", env["COMPONENTS"])
 )[0]
-if "CONFIG_USERDEMO_LINUX_X86_SDL2" in os.environ:
-    REQUIREMENTS += pkg_config_ldflags("sdl2")
+# CONFIG_USERDEMO_* keys are not declared in Kconfig, so they never reach the
+# environment; key the SDL wiring on the LVGL SDL driver symbol instead.
+if "CONFIG_V9_5_LV_USE_SDL" in os.environ:
+    # pkg-config may emit -L / -Wl,-framework flags (Homebrew); only -l entries are libraries.
+    sdl2_ldflags = pkg_config_ldflags("sdl2")
+    REQUIREMENTS += [flag for flag in sdl2_ldflags if flag.startswith("-l")]
+    LDFLAGS += [flag for flag in sdl2_ldflags if not flag.startswith("-l")]
     DEFINITIONS += pkg_config_cflags("sdl2")
     lvgl_component["DEFINITIONS"] += pkg_config_cflags("sdl2")
     lvgl_component["DEFINITIONS"] += ["-D_REENTRANT"]
