@@ -15,7 +15,7 @@ compare them side by side.
 | --- | --- | --- |
 | **Idea** | You own every pixel: fill rectangles, draw text, `present()` | You create objects (labels, buttons, sliders, lists) and LVGL draws them |
 | **Text, fonts** | One built-in 8x16 bitmap font | Many sizes, proportional fonts, TrueType via FreeType |
-| **Forms, lists, scrolling** | Write them yourself (see the hand-drawn Widgets demo) | Ready-made: text areas, buttons, sliders, rollers, switches, lists, tabs, charts, ... |
+| **Forms, lists, scrolling** | Write them yourself (see the hand-drawn Widgets demo) | Ready-made: text areas, buttons, sliders, spinboxes, dropdowns, switches, checkboxes, lists, tabs, charts, ...; focus groups, scrolling and editing included (see the LVGL Widgets demo) |
 | **Layout** | Coordinates you compute | Alignment, flex and grid layouts, styles |
 | **Looks like the launcher** | Only if you copy the look | The standard top bar (title, clock, Wi-Fi, battery) is built in |
 | **Animation, games** | Natural: redraw every frame | Possible (timers, animations, `lv_canvas` for pixels), but widgets are not a game engine |
@@ -113,18 +113,49 @@ Everything LVGL provides is compiled into the runtime, so no rebuild of the
 runtime is needed for new widgets. Keep LVGL calls on the LVGL thread: in
 `setup`, `on_key`, event callbacks and `lv_timer` callbacks.
 
+## Looks: the theme
+
+The templates start LVGL's default theme in dark mode with the language's
+color as its primary color (`lv_theme_default_init`, before any widget exists).
+Widgets created afterwards take their look from it: rounded buttons, focus
+outlines, slider and switch colors, dropdown lists. Calling it again with
+another color restyles every themed widget at once, which is what the Widgets
+demo's Color dropdown does. Set individual styles (`lv_obj_set_style_*`) only
+where you want to differ from the theme.
+
 ## Keys and focus
 
-- `on_key` gets every key, presses and releases (`state`), with `code` (the
-  Linux key code) and `text` (what it types, with Shift and the symbol layer
-  applied). There are no arrow keys on the device: treat F/X/Z/C as
-  up/down/left/right, as the launcher does; arrows work on your computer.
-- While a text field is active, call `cp0_app_set_text_input(1)` so F/X/Z/C
-  type letters; set it back to 0 afterwards (the REPL and Widgets demos do).
-- LVGL's own keyboard focus (groups) expects keys the device doesn't have, so
-  the Widgets demo calls `cp0_app_set_keypad_intercept(1)` and moves focus and
-  changes values itself in `on_key`. See its comments, and the C++ guide's
-  [keyboard section](cpp-lvgl.md#keyboard).
+Keys reach your app twice, and you can use either path:
+
+- **Your `on_key` callback** gets every key, presses and releases (`state`),
+  with `code` (the Linux key code) and `text` (what it types, with Shift and
+  the symbol layer applied). Use it for app-wide keys (the demos: ESC goes
+  home, TAB to the next demo) and screens that are not made of widgets.
+- **LVGL's keypad input** delivers the same keys to the focused widget of the
+  active `lv_group`, the standard LVGL way: ENTER clicks a button, toggles a
+  switch or opens a dropdown; LEFT/RIGHT move a slider; typed characters go
+  into a focused `lv_textarea`, which also handles BACKSPACE and cursor keys
+  itself; ESC closes a dropdown list.
+
+The Widgets demo is built this way: an `lv_group` holds the form's widgets,
+and everything is stock LVGL (default theme, flex layout, widget events)
+except two small things the CardputerZero keyboard needs:
+
+- **Moving the focus.** LVGL moves focus on its NEXT/PREV keys, which the
+  device keyboard doesn't have. The device has no arrow keys either: F/X/Z/C
+  act as up/down/left/right, as in the launcher (real arrows work on your
+  computer). So each widget gets a preprocess `LV_EVENT_KEY` handler that turns
+  up/down into `lv_group_focus_prev/next` (except in an open dropdown list,
+  where up/down choose an option).
+- **Text mode.** While a text area has focus, `cp0_app_set_text_input(1)` makes
+  F/X/Z/C type letters instead of navigating; set it back to 0 when it loses
+  focus (the text area's `LV_EVENT_FOCUSED`/`DEFOCUSED` events).
+
+`cp0_app_set_keypad_intercept(1)` (in `cp0_app.h`; add it to your bindings if
+your template doesn't declare it) turns the second path off, for screens that
+want to handle every key in `on_key` themselves. See the comments at the top of
+each template's widgets source, and the C++ guide's
+[keyboard section](cpp-lvgl.md#keyboard).
 
 ## Troubleshooting
 
