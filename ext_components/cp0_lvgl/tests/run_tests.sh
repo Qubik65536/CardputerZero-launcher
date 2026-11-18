@@ -288,6 +288,11 @@ fi
     "$root/tests/test_sdl_fbsim_keymap.c" -o "$binary"
 "$binary"
 
+"${CC:-cc}" -std=c11 -Wall -Wextra -Werror -pthread \
+    -I"$root/include" -I"$root/src" \
+    "$root/tests/test_cp0_keyboard_lvgl_key.c" -o "$binary"
+"$binary"
+
 "${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror \
     -I"$root/include" -I"$root/src" \
     "$root/src/cp0_filesystem_api.cpp" \

@@ -13,6 +13,7 @@
 #include "../cp0_keyboard_key_contract.h"
 #include "cp0_keyboard_navigation_contract.h"
 #include "../cp0_keyboard_input_lifecycle.h"
+#include "../cp0_keyboard_lvgl_key.h"
 #include "../cp0_keyboard_queue.h"
 #include "../cp0_keyboard_text.h"
 
@@ -27,6 +28,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* cp0_keyboard_lvgl_key.h copies LVGL's control key values so tests need no LVGL. */
+_Static_assert(CP0_LV_KEY_UP == LV_KEY_UP && CP0_LV_KEY_DOWN == LV_KEY_DOWN &&
+                   CP0_LV_KEY_RIGHT == LV_KEY_RIGHT && CP0_LV_KEY_LEFT == LV_KEY_LEFT &&
+                   CP0_LV_KEY_ESC == LV_KEY_ESC && CP0_LV_KEY_DEL == LV_KEY_DEL &&
+                   CP0_LV_KEY_BACKSPACE == LV_KEY_BACKSPACE && CP0_LV_KEY_ENTER == LV_KEY_ENTER &&
+                   CP0_LV_KEY_NEXT == LV_KEY_NEXT && CP0_LV_KEY_PREV == LV_KEY_PREV &&
+                   CP0_LV_KEY_HOME == LV_KEY_HOME && CP0_LV_KEY_END == LV_KEY_END,
+               "cp0_keyboard_lvgl_key.h is out of date with lv_key_t");
 
 typedef struct {
     struct key_item current;
@@ -96,40 +106,6 @@ int cp0_keyboard_get_lvgl_keypad_intercept(void)
     return lvgl_keypad_intercept;
 }
 
-static uint32_t cp0_evdev_process_key(uint16_t code)
-{
-    switch (code) {
-    case KEY_UP:
-        return LV_KEY_UP;
-    case KEY_DOWN:
-        return LV_KEY_DOWN;
-    case KEY_RIGHT:
-        return LV_KEY_RIGHT;
-    case KEY_LEFT:
-        return LV_KEY_LEFT;
-    case KEY_ESC:
-        return LV_KEY_ESC;
-    case KEY_DELETE:
-        return LV_KEY_DEL;
-    case KEY_BACKSPACE:
-        return LV_KEY_BACKSPACE;
-    case KEY_ENTER:
-    case KEY_KPENTER:
-        return LV_KEY_ENTER;
-    case KEY_NEXT:
-        return LV_KEY_NEXT;
-    case KEY_TAB:
-        return KEY_TAB;
-    case KEY_PREVIOUS:
-        return LV_KEY_PREV;
-    case KEY_HOME:
-        return LV_KEY_HOME;
-    case KEY_END:
-        return LV_KEY_END;
-    default:
-        return code;
-    }
-}
 
 static uint32_t cp0_sdl_ctrl_to_lv_key(SDL_Keycode key)
 {
@@ -533,9 +509,10 @@ static void cp0_sdl_keyboard_read(lv_indev_t *indev, lv_indev_data_t *data)
                 const uint32_t semantic_key = elm->semantic_key
                                                   ? elm->semantic_key
                                                   : elm->key_code;
-                data->key = cp0_evdev_process_key(semantic_key);
+                data->key = cp0_keyboard_lvgl_key(semantic_key, elm->codepoint);
                 if (data->key)
-                    data->state = (lv_indev_state_t)elm->key_state;
+                    data->state = cp0_keyboard_lvgl_key_pressed(elm->key_state) ? LV_INDEV_STATE_PRESSED
+                                                                                 : LV_INDEV_STATE_RELEASED;
             }
         }
         data->continue_reading = cp0_keyboard_queue_has_data();
