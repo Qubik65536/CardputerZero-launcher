@@ -7,9 +7,12 @@
 #include "lvgl/lvgl.h"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
+#include <vector>
 #ifdef _WIN32
 #include <windows.h>
 #define usleep(us) Sleep((us)/1000)
@@ -20,6 +23,12 @@ static const char *emu_dlerror() { static char b[256]; FormatMessageA(FORMAT_MES
 #else
 #include <unistd.h>
 #include <dlfcn.h>
+#include <csignal>
+#include <climits>
+#include <sys/wait.h>
+#include "fbsim_protocol.h"
+#include "cp0_esc_exit_policy.hpp"
+#include "cp0_esc_state.h"
 #define emu_dlopen(p)   dlopen(p, RTLD_NOW | RTLD_GLOBAL)
 #define emu_dlsym(h,s)  dlsym(h,s)
 #define emu_dlclose(h)  dlclose(h)
@@ -193,6 +202,11 @@ static void inject_sdl_key(SDL_Keycode key, bool down)
     }
 }
 
+static void inject_sdl_key_value(SDL_Keycode key, int value)
+{
+    inject_sdl_key(key, value != 0);
+}
+
 // ── Draw highlight rect on a key ────────────────────────────────
 static void draw_key_highlight(int r, int c, uint8_t cr, uint8_t cg, uint8_t cb, uint8_t ca)
 {
@@ -240,6 +254,355 @@ static void render()
 
     SDL_RenderPresent(g_ren);
 }
+
+
+// ── Test script (EMU_TEST_KEYS / EMU_TEST_SCREENSHOT / EMU_TEST_QUIT_MS) ──
+// Times are milliseconds since start, so they work the same whether the
+// launcher, an app it started, or a --fb app owns the screen:
+//   EMU_TEST_KEYS="1500:Return,4000:Escape:down,8000:Escape:up"   (SDL key names)
+//   EMU_TEST_SCREENSHOT="3000:/tmp/a.png,6000:/tmp/b.png"         (LCD only)
+//   EMU_TEST_QUIT_MS=9000
+struct TestAction {
+    enum Kind { Tap, Down, Up, Shot, Quit } kind;
+    unsigned at_ms;
+    SDL_Keycode key;
+    std::string path;
+    bool done;
+};
+static std::vector<TestAction> g_test_actions;
+static Uint32 g_start_ticks = 0;
+static bool g_quit_requested = false;
+
+static void parse_test_list(const char *name, bool screenshots)
+{
+    const char *value = getenv(name);
+    if (!value || !*value) return;
+    std::string list(value);
+    size_t start = 0;
+    while (start <= list.size()) {
+        size_t comma = list.find(',', start);
+        std::string item = list.substr(start, comma == std::string::npos ? std::string::npos
+                                                                        : comma - start);
+        start = comma == std::string::npos ? list.size() + 1 : comma + 1;
+        size_t colon = item.find(':');
+        if (colon == std::string::npos) continue;
+        TestAction action{TestAction::Tap, (unsigned)strtoul(item.c_str(), nullptr, 10),
+                          SDLK_UNKNOWN, std::string(), false};
+        std::string rest = item.substr(colon + 1);
+        if (screenshots) {
+            action.kind = TestAction::Shot;
+            action.path = rest;
+        } else {
+            size_t mode = rest.rfind(':');
+            if (mode != std::string::npos) {
+                std::string suffix = rest.substr(mode + 1);
+                if (suffix == "down" || suffix == "up") {
+                    action.kind = suffix == "down" ? TestAction::Down : TestAction::Up;
+                    rest = rest.substr(0, mode);
+                }
+            }
+            action.key = SDL_GetKeyFromName(rest.c_str());
+            if (action.key == SDLK_UNKNOWN) {
+                fprintf(stderr, "[EMU] %s: unknown key '%s'\n", name, rest.c_str());
+                continue;
+            }
+        }
+        g_test_actions.push_back(action);
+    }
+}
+
+static void parse_test_script()
+{
+    g_start_ticks = SDL_GetTicks();
+    parse_test_list("EMU_TEST_KEYS", false);
+    parse_test_list("EMU_TEST_SCREENSHOT", true);
+    const char *quit = getenv("EMU_TEST_QUIT_MS");
+    if (quit && *quit)
+        g_test_actions.push_back({TestAction::Quit, (unsigned)strtoul(quit, nullptr, 10),
+                                  SDLK_UNKNOWN, std::string(), false});
+}
+
+static void save_lcd_png(const char *path)
+{
+    SDL_Surface *shot = SDL_CreateRGBSurfaceWithFormatFrom(
+        g_lcd_buf, LCD_W, LCD_H, 32, LCD_W * 4, SDL_PIXELFORMAT_ARGB8888);
+    if (shot && IMG_SavePNG(shot, path) == 0) printf("[EMU] Screenshot %s\n", path);
+    else fprintf(stderr, "[EMU] Screenshot %s failed: %s\n", path, SDL_GetError());
+    if (shot) SDL_FreeSurface(shot);
+}
+
+// key value: 0 released, 1 pressed. Delivered to whoever owns the screen.
+typedef void (*key_sink_fn)(SDL_Keycode key, int value);
+
+static void run_test_script(key_sink_fn sink)
+{
+    const unsigned now = SDL_GetTicks() - g_start_ticks;
+    for (auto &action : g_test_actions) {
+        if (action.done || now < action.at_ms) continue;
+        action.done = true;
+        switch (action.kind) {
+        case TestAction::Tap:
+            printf("[EMU] TEST key %s\n", SDL_GetKeyName(action.key));
+            sink(action.key, 1);
+            sink(action.key, 0);
+            break;
+        case TestAction::Down: sink(action.key, 1); break;
+        case TestAction::Up: sink(action.key, 0); break;
+        case TestAction::Shot: save_lcd_png(action.path.c_str()); break;
+        case TestAction::Quit:
+            printf("[EMU] TEST quit at %u ms\n", now);
+            g_quit_requested = true;
+            break;
+        }
+    }
+}
+
+#if !defined(_WIN32)
+// ── fbsim host: apps that draw into a shared RGB565 framebuffer ─────
+// The same CARDPUTER_FB / CARDPUTER_INPUT contract as scripts/fbsim. Used by
+// `--fb -- <app>` and for every app the emulated launcher starts, so an app
+// opened from the home screen draws on this LCD, as it does on the device.
+static fbsim_session g_fb = {};
+static bool g_fb_open = false;
+static bool g_fb_owns_screen = false;  // an external app is drawing
+static pid_t g_fb_child = -1;
+static Uint32 g_fb_term_sent = 0;      // quitting: SIGTERM sent at this tick
+static uint16_t g_fb_pixels[LCD_W * LCD_H];
+
+static void fb_frame_to_lcd()
+{
+    if (fbsim_read_frame(&g_fb, g_fb_pixels) != 0) return;
+    for (int i = 0; i < LCD_W * LCD_H; i++) {
+        uint16_t c = g_fb_pixels[i];
+        uint8_t r5 = (c >> 11) & 0x1F, g6 = (c >> 5) & 0x3F, b5 = c & 0x1F;
+        g_lcd_buf[i] = 0xFF000000 | ((r5 << 3 | r5 >> 2) << 16) | ((g6 << 2 | g6 >> 4) << 8) |
+                       (b5 << 3 | b5 >> 2);
+    }
+}
+
+// The device hands the framebuffer over without clearing it; so does this.
+static void lcd_to_fb_frame()
+{
+    for (int i = 0; i < LCD_W * LCD_H; i++) {
+        uint32_t c = g_lcd_buf[i];
+        g_fb_pixels[i] = (uint16_t)(((c >> 8) & 0xF800) | ((c >> 5) & 0x07E0) | ((c >> 3) & 0x1F));
+    }
+    fbsim_write_frame(&g_fb, g_fb_pixels);
+}
+
+// Modifiers latched on the skin (Aa, ctrl, alt, fn) are held around the next key.
+static void send_fb_latched_modifiers(int32_t value)
+{
+    if (g_mod_aa) fbsim_send_key(&g_fb, FBSIM_KEY_LEFTSHIFT, value);
+    if (g_mod_ctrl) fbsim_send_key(&g_fb, FBSIM_KEY_LEFTCTRL, value);
+    if (g_mod_alt) fbsim_send_key(&g_fb, FBSIM_KEY_LEFTALT, value);
+    if (g_mod_fn) fbsim_send_key(&g_fb, FBSIM_KEY_FN, value);
+}
+
+static void send_fb_key_value(SDL_Keycode key, int32_t value, bool from_skin)
+{
+    uint16_t code = fbsim_linux_key_code(key);
+    if (code == 0) return;
+    if (code == FBSIM_KEY_ESC) cp0_esc_state_write(value);  // hold-ESC-to-quit, as on the device
+    if (from_skin && value == 1) send_fb_latched_modifiers(1);
+    fbsim_send_key(&g_fb, code, value);
+    if (from_skin && value == 0) send_fb_latched_modifiers(0);
+}
+
+static void send_fb_key(SDL_Keycode key, int value)
+{
+    send_fb_key_value(key, value, false);
+}
+
+static void request_fb_child_quit()
+{
+    g_quit_requested = true;
+    if (g_fb_child > 0 && g_fb_term_sent == 0) {
+        printf("[EMU] Quitting: SIGTERM to app %d\n", (int)g_fb_child);
+        killpg(g_fb_child, SIGTERM);
+        g_fb_term_sent = SDL_GetTicks();
+        if (g_fb_term_sent == 0) g_fb_term_sent = 1;
+    }
+}
+
+// SIGKILL an app that ignored the quit SIGTERM for 3 s.
+static void escalate_fb_child_quit()
+{
+    if (g_fb_child > 0 && g_fb_term_sent != 0 && SDL_GetTicks() - g_fb_term_sent > 3000) {
+        printf("[EMU] App %d ignored SIGTERM: SIGKILL\n", (int)g_fb_child);
+        killpg(g_fb_child, SIGKILL);
+        g_fb_term_sent = SDL_GetTicks();
+    }
+}
+
+static void pump_fb_events()
+{
+    SDL_Event ev;
+    while (SDL_PollEvent(&ev)) {
+        if (ev.type == SDL_QUIT) {
+            request_fb_child_quit();
+        } else if (ev.type == SDL_MOUSEBUTTONDOWN) {
+            int r, c;
+            int side = hit_side_key(ev.button.x, ev.button.y);
+            if (side == SIDE_POWER) {
+                printf("[EMU] POWER is ignored while an app runs; hold ESC to close it\n");
+            } else if (side >= 0) {
+                g_side_pr = side;
+                send_fb_key_value(g_side_keys[side].key, 1, false);
+            } else if (hit_key(ev.button.x, ev.button.y, &r, &c)) {
+                if (is_modifier(r, c)) {
+                    toggle_modifier(r, c);
+                } else {
+                    g_pr = r;
+                    g_pc = c;
+                    send_fb_key_value(g_keys[r][c].key, 1, true);
+                }
+            }
+        } else if (ev.type == SDL_MOUSEBUTTONUP) {
+            if (g_side_pr >= 0) {
+                send_fb_key_value(g_side_keys[g_side_pr].key, 0, false);
+                g_side_pr = -1;
+            } else if (g_pr >= 0) {
+                send_fb_key_value(g_keys[g_pr][g_pc].key, 0, true);
+                g_pr = -1;
+            }
+        } else if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) {
+            int32_t value = ev.type == SDL_KEYUP ? 0 : (ev.key.repeat ? 2 : 1);
+            send_fb_key_value(ev.key.keysym.sym, value, false);
+        }
+    }
+}
+
+static bool open_fb_session()
+{
+    if (g_fb_open) return true;
+    g_fb_open = fbsim_session_open(&g_fb, LCD_W, LCD_H) == 0;
+    return g_fb_open;
+}
+
+static void close_fb_session()
+{
+    if (g_fb_open) fbsim_session_close(&g_fb);
+    g_fb_open = false;
+}
+
+// cp0_lvgl SDL external-app runner hooks (sdl_external_app_runner.hpp): the
+// launcher calls these while it waits for an app started from a .desktop entry.
+extern "C" const char *const *cp0_sdl_external_app_env(void)
+{
+    static const char *env[4];
+    if (!g_fb_open) return nullptr;
+    env[0] = g_fb.env_fb;
+    env[1] = g_fb.env_input;
+    env[2] = g_fb.env_size;
+    env[3] = nullptr;
+    return env;
+}
+
+extern "C" void cp0_sdl_external_app_begin(int pid)
+{
+    if (!g_fb_open) return;
+    g_fb_child = pid;
+    g_fb_term_sent = 0;
+    fbsim_drain_input(&g_fb);
+    lcd_to_fb_frame();
+    g_fb_owns_screen = true;
+    printf("[EMU] External app %d owns the screen (hold ESC 3 s to close it)\n", pid);
+}
+
+extern "C" int cp0_sdl_external_app_tick(void)
+{
+    if (!g_fb_owns_screen) return 50;
+    pump_fb_events();
+    run_test_script(send_fb_key);
+    if (g_quit_requested) request_fb_child_quit();
+    escalate_fb_child_quit();
+    fb_frame_to_lcd();
+    render();
+    return 16;
+}
+
+extern "C" void cp0_sdl_external_app_end(void)
+{
+    if (!g_fb_owns_screen) return;
+    g_fb_owns_screen = false;
+    g_fb_child = -1;
+    g_pr = g_side_pr = -1;
+    fbsim_drain_input(&g_fb);
+    printf("[EMU] External app finished; back to the launcher\n");
+    // The app drew over the LCD: have LVGL repaint everything.
+    if (lv_display_get_default()) lv_obj_invalidate(lv_screen_active());
+}
+
+static int app_exit_status(int status)
+{
+    if (WIFEXITED(status)) return WEXITSTATUS(status);
+    if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
+    return 1;
+}
+
+// `--fb -- <app> [args...]`: run one framebuffer app on the emulated LCD and
+// exit with its status. Holding ESC for 3 s closes it, like the launcher.
+static int run_fb_mode(char **command, const char *launch_cwd)
+{
+    if (!open_fb_session()) return 1;
+    setenv("CARDPUTER_FB", g_fb.fb_path, 1);
+    setenv("CARDPUTER_INPUT", g_fb.input_path, 1);
+    setenv("CARDPUTER_FB_SIZE", g_fb.env_size + strlen("CARDPUTER_FB_SIZE="), 1);
+    memset(g_lcd_buf, 0, LCD_W * LCD_H * sizeof(uint32_t));
+    lcd_to_fb_frame();
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        setpgid(0, 0);
+        if (launch_cwd && chdir(launch_cwd) != 0) perror("[EMU] chdir");
+        execvp(command[0], command);
+        fprintf(stderr, "[EMU] cannot run %s: %s\n", command[0], strerror(errno));
+        _exit(127);
+    }
+    if (pid < 0) {
+        perror("[EMU] fork");
+        return 1;
+    }
+    setpgid(pid, pid);
+    g_fb_child = pid;
+    g_fb_owns_screen = true;
+    printf("[EMU] Running %s (pid %d) on the emulated LCD\n", command[0], (int)pid);
+
+    cp0_esc_exit_policy::StateMachine esc_policy;
+    int status = 0;
+    while (true) {
+        pump_fb_events();
+        run_test_script(send_fb_key);
+        if (g_quit_requested) request_fb_child_quit();
+        escalate_fb_child_quit();
+
+        const auto decision = esc_policy.update(SDL_GetTicks64(), cp0_esc_state_read() != 0);
+        if (decision.show_hint) printf("[EMU] Holding ESC: the app closes in 3 s\n");
+        if (decision.send_terminate) {
+            printf("[EMU] ESC held: SIGTERM to app %d\n", (int)pid);
+            killpg(pid, SIGTERM);
+        }
+        if (decision.send_kill) {
+            printf("[EMU] Grace period over: SIGKILL to app %d\n", (int)pid);
+            killpg(pid, SIGKILL);
+        }
+
+        fb_frame_to_lcd();
+        render();
+        if (waitpid(pid, &status, WNOHANG) == pid) break;
+        SDL_Delay(16);
+    }
+    fb_frame_to_lcd();
+    run_test_script(send_fb_key);  // screenshots due exactly at exit
+    g_fb_owns_screen = false;
+    g_fb_child = -1;
+    close_fb_session();
+    const int code = app_exit_status(status);
+    printf("[EMU] App exited with status %d\n", code);
+    return code;
+}
+#endif
 
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
@@ -356,8 +719,76 @@ static unsigned emu_test_frame(const char *name)
     return static_cast<unsigned>(frame);
 }
 
+static void print_usage()
+{
+    printf("usage: cardputer-zero-emu [app-library]\n"
+           "       cardputer-zero-emu --fb [--] <program> [args...]\n"
+           "\n"
+           "  app-library  LVGL UI library to load (default: the APPLaunch launcher).\n"
+           "               Apps you install into the launcher's applications/ folder\n"
+           "               draw on the emulated screen when you open them.\n"
+           "  --fb         Run one program built for the desktop on the emulated screen\n"
+           "               (Rust/Zig/OCaml framebuffer apps, cp0_lvgl apps) and exit\n"
+           "               with its status. Same contract as scripts/fbsim/fbsim.\n"
+           "\n"
+           "Test hooks (times in ms since start): EMU_TEST_KEYS=\"1500:Return,2000:Escape:down\",\n"
+           "EMU_TEST_SCREENSHOT=\"3000:/tmp/shot.png\", EMU_TEST_QUIT_MS=4000.\n");
+}
+
+// Paths given on the command line are relative to where the emulator was
+// started, but main() moves to the executable's directory for its assets.
+static std::string resolve_from(const char *cwd, const char *path)
+{
+    if (!path || path[0] == '/' || !strchr(path, '/') || !cwd) return path ? path : "";
+    std::string joined = std::string(cwd) + "/" + path;
+#if !defined(_WIN32)
+    char resolved[PATH_MAX];
+    if (realpath(joined.c_str(), resolved)) return resolved;
+#endif
+    return joined;
+}
+
 int main(int argc, char *argv[])
 {
+    char launch_cwd[4096] = {0};
+#if !defined(_WIN32)
+    if (!getcwd(launch_cwd, sizeof(launch_cwd))) launch_cwd[0] = '\0';
+#endif
+    char **fb_command = nullptr;
+    std::string fb_program;
+    if (argc > 1 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)) {
+        print_usage();
+        return 0;
+    }
+    if (argc > 1 && strcmp(argv[1], "--fb") == 0) {
+        int first = (argc > 2 && strcmp(argv[2], "--") == 0) ? 3 : 2;
+        if (first >= argc) {
+            print_usage();
+            return 2;
+        }
+        fb_command = &argv[first];
+        fb_program = resolve_from(launch_cwd, fb_command[0]);
+        fb_command[0] = &fb_program[0];
+    }
+#if defined(_WIN32)
+    if (fb_command) {
+        fprintf(stderr, "[EMU] --fb is not supported on Windows\n");
+        return 2;
+    }
+#else
+    // These describe the screen of a host running *this* process under fbsim;
+    // the emulator draws its own window and hands them to its apps instead.
+    unsetenv("CARDPUTER_FB");
+    unsetenv("CARDPUTER_INPUT");
+    unsetenv("CARDPUTER_FB_SIZE");
+#endif
+    std::string app_arg;
+#ifndef EMU_STATIC_APP
+    if (!fb_command && argc > 1) {
+        std::string candidate = resolve_from(launch_cwd, argv[1]);
+        app_arg = access(candidate.c_str(), F_OK) == 0 ? candidate : argv[1];
+    }
+#endif
     set_exe_dir();
 
     const unsigned test_reset_frame = emu_test_frame("EMU_TEST_RESET_FRAME");
@@ -373,15 +804,16 @@ int main(int argc, char *argv[])
     const char *app_path = "apps/libAPPLaunch.so";
 #endif
 #ifndef EMU_STATIC_APP
-    if (argc > 1) app_path = argv[1];
+    if (!app_arg.empty()) app_path = app_arg.c_str();
 #endif
+    if (fb_command) app_path = fb_command[0];
 
     printf("========================================\n");
     printf("  M5CardputerZero Emulator\n");
     printf("  App : %s\n", app_path);
     printf("  LCD : %dx%d  Window: %dx%d\n",
            LCD_W, LCD_H, (int)(SKIN_W*SCALE), (int)(SKIN_H*SCALE));
-    printf("  Modifiers: click Aa/fn/ctrl to toggle\n");
+    printf("  Modifiers: click Aa/fn/ctrl/alt to latch for the next key\n");
     printf("========================================\n");
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
@@ -430,6 +862,24 @@ int main(int argc, char *argv[])
         SDL_TEXTUREACCESS_STREAMING, LCD_W, LCD_H);
     SDL_SetTextureScaleMode(g_lcd_tex, SDL_ScaleModeNearest);
     g_lcd_buf = (uint32_t *)calloc(LCD_W * LCD_H, sizeof(uint32_t));
+
+    parse_test_script();
+#if !defined(_WIN32)
+    if (fb_command) {
+        const int status = run_fb_mode(fb_command, launch_cwd[0] ? launch_cwd : nullptr);
+        free(g_lcd_buf);
+        SDL_DestroyTexture(g_lcd_tex);
+        SDL_DestroyTexture(g_skin_tex);
+        SDL_DestroyRenderer(g_ren);
+        SDL_DestroyWindow(g_win);
+        IMG_Quit();
+        SDL_Quit();
+        return status;
+    }
+    // Apps the launcher starts get this framebuffer (see cp0_sdl_external_app_*).
+    if (!open_fb_session())
+        fprintf(stderr, "[EMU] External apps will not show on the emulated screen\n");
+#endif
 
     lv_init();
     static uint8_t draw_buf[LCD_W * LCD_H * 2];
@@ -555,6 +1005,8 @@ int main(int argc, char *argv[])
         lv_timer_handler();
         render();
         ++frame_count;
+        run_test_script(inject_sdl_key_value);
+        if (g_quit_requested) goto done;
         if (!test_navigate_done && test_navigate_frame && frame_count >= test_navigate_frame) {
             printf("[EMU] TEST navigate at frame %u\n", frame_count);
             inject_sdl_key(SDLK_RIGHT, true);
@@ -586,6 +1038,9 @@ int main(int argc, char *argv[])
     }
 
 done:
+#if !defined(_WIN32)
+    close_fb_session();
+#endif
 #ifdef EMU_STATIC_APP
     ui_deinit();
     printf("[EMU] App deinitialized\n");
