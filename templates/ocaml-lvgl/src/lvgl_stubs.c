@@ -9,12 +9,13 @@
  * makes. Each `external` in lvgl.ml names one of these functions.
  *
  * Values
- *   Pointers (lv_obj_t *, lv_group_t *, lv_timer_t *, const lv_font_t *,
- *   lv_event_t *) cross into OCaml as tagged integers: the address with its
+ *   Pointers (lv_obj_t *, lv_group_t *, lv_indev_t *, lv_timer_t *,
+ *   const lv_font_t *, lv_event_t *, ...) cross into OCaml as tagged integers: the address with its
  *   lowest bit set. LVGL's structures are at least 4-byte aligned, so that bit
  *   is always free, and the result is an ordinary OCaml int: the garbage
  *   collector ignores it (OCaml 5 forbids naked pointers into C memory) and no
  *   boxing is needed. lvgl.ml declares the types abstract and [@@immediate].
+ *   A pointer that may be NULL is an OCaml option (None for NULL).
  *   Colors are 0xRRGGBB ints turned into lv_color_t here with lv_color_hex;
  *   selectors, flags, states and event codes are ints (their values are
  *   checked against the LVGL headers at the bottom of this file).
@@ -26,8 +27,7 @@
  *   and updates the cell when it moves the closure. The cell is the C
  *   callback's user_data; a trampoline calls the closure through it:
  *     - object events: the cell is freed by a second handler on LV_EVENT_DELETE;
- *     - timers: Timer.delete frees it;
- *     - a group's focus callback: stored in the group's user_data.
+ *     - timers: Timer.delete frees it.
  *   Exceptions must not unwind through LVGL's C frames: lvgl.ml wraps every
  *   closure in Lvgl.guard, which reports an uncaught exception and exits with
  *   status 2 like OCaml does at top level, and the trampolines use
@@ -41,7 +41,8 @@
  *   Arguments that are tagged pointers or ints need no protection, even if
  *   the call runs OCaml callbacks. Stubs that take strings or closures use
  *   CAMLparam, and copy a string first when LVGL could call back into OCaml
- *   while still reading it (lv_textarea_add_text sends events).
+ *   while still reading it (lv_textarea_add_text, for one, sends events).
+ *   Option arguments are read before anything is allocated.
  *
  * Calling more of LVGL
  *   1. Find the function in SDK/github_source/lvgl/lvgl_9_5/lvgl/src (e.g.
@@ -86,8 +87,22 @@ static inline void *Pointer_val(value v)
 #define Timer_val(v) ((lv_timer_t *)Pointer_val(v))
 #define Font_val(v) ((const lv_font_t *)Pointer_val(v))
 #define Event_val(v) ((lv_event_t *)Pointer_val(v))
+#define Indev_val(v) ((lv_indev_t *)Pointer_val(v))
+#define Display_val(v) ((lv_display_t *)Pointer_val(v))
+#define Theme_val(v) ((lv_theme_t *)Pointer_val(v))
 #define I32_val(v) ((int32_t)Long_val(v))
 #define U32_val(v) ((uint32_t)Long_val(v))
+
+/* A pointer that may be NULL, as an OCaml option. */
+static value Val_pointer_option(const void *pointer)
+{
+    return pointer ? caml_alloc_some(Val_pointer(pointer)) : Val_none;
+}
+
+static void *Pointer_option_val(value v)
+{
+    return Is_none(v) ? NULL : Pointer_val(Some_val(v));
+}
 
 /* ---- Closures kept alive for C ----------------------------------------- */
 
@@ -289,26 +304,47 @@ value ml_lv_obj_add_state(value obj, value state)
     return Val_unit;
 }
 
-value ml_lv_obj_remove_state(value obj, value state)
-{
-    lv_obj_remove_state(Obj_val(obj), (lv_state_t)U32_val(state));
-    return Val_unit;
-}
-
 value ml_lv_obj_has_state(value obj, value state)
 {
     return Val_bool(lv_obj_has_state(Obj_val(obj), (lv_state_t)U32_val(state)));
 }
 
-value ml_lv_obj_set_state(value obj, value state, value enabled)
-{
-    lv_obj_set_state(Obj_val(obj), (lv_state_t)U32_val(state), Bool_val(enabled));
-    return Val_unit;
-}
-
 value ml_lv_obj_invalidate(value obj)
 {
     lv_obj_invalidate(Obj_val(obj));
+    return Val_unit;
+}
+
+value ml_lv_obj_refresh_ext_draw_size(value obj)
+{
+    lv_obj_refresh_ext_draw_size(Obj_val(obj));
+    return Val_unit;
+}
+
+/* LV_PCT is a macro. */
+value ml_lv_pct(value percent)
+{
+    return Val_long(LV_PCT(I32_val(percent)));
+}
+
+/* ---- Flex layout (layouts/flex/lv_flex.h) ------------------------------- */
+
+value ml_lv_obj_set_flex_flow(value obj, value flow)
+{
+    lv_obj_set_flex_flow(Obj_val(obj), (lv_flex_flow_t)Int_val(flow));
+    return Val_unit;
+}
+
+value ml_lv_obj_set_flex_align(value obj, value main_place, value cross_place, value track_place)
+{
+    lv_obj_set_flex_align(Obj_val(obj), (lv_flex_align_t)Int_val(main_place), (lv_flex_align_t)Int_val(cross_place),
+                          (lv_flex_align_t)Int_val(track_place));
+    return Val_unit;
+}
+
+value ml_lv_obj_set_flex_grow(value obj, value grow)
+{
+    lv_obj_set_flex_grow(Obj_val(obj), (uint8_t)Int_val(grow));
     return Val_unit;
 }
 
@@ -334,12 +370,6 @@ value ml_lv_obj_add_event_cb(value obj, value filter, value closure)
     CAMLreturn(Val_unit);
 }
 
-value ml_lv_obj_send_event(value obj, value code)
-{
-    lv_obj_send_event(Obj_val(obj), (lv_event_code_t)Int_val(code), NULL);
-    return Val_unit;
-}
-
 value ml_lv_event_get_code(value event)
 {
     return Val_int(lv_event_get_code(Event_val(event)));
@@ -348,6 +378,17 @@ value ml_lv_event_get_code(value event)
 value ml_lv_event_get_target(value event)
 {
     return Val_pointer(lv_event_get_target_obj(Event_val(event)));
+}
+
+value ml_lv_event_get_key(value event)
+{
+    return Val_long(lv_event_get_key(Event_val(event)));
+}
+
+value ml_lv_event_stop_processing(value event)
+{
+    lv_event_stop_processing(Event_val(event));
+    return Val_unit;
 }
 
 /* ---- Styles (lv_obj_set_style_*) ----------------------------------------
@@ -372,18 +413,11 @@ value ml_lv_event_get_target(value event)
 ML_STYLE_COLOR(bg_color)
 ML_STYLE_INT(bg_opa)
 ML_STYLE_INT(border_width)
-ML_STYLE_COLOR(border_color)
 ML_STYLE_COLOR(text_color)
-ML_STYLE_INT(text_opa)
-ML_STYLE_INT(text_align)
 ML_STYLE_INT(pad_all)
-ML_STYLE_INT(pad_hor)
 ML_STYLE_INT(pad_ver)
-ML_STYLE_INT(pad_right)
-ML_STYLE_INT(anim_duration)
-ML_STYLE_COLOR(outline_color)
-ML_STYLE_INT(outline_width)
-ML_STYLE_INT(outline_pad)
+ML_STYLE_INT(pad_row)
+ML_STYLE_INT(pad_column)
 
 value ml_lv_obj_set_style_text_font(value obj, value font, value selector)
 {
@@ -488,21 +522,6 @@ value ml_lv_textarea_get_text(value textarea)
     return caml_copy_string(lv_textarea_get_text(Obj_val(textarea)));
 }
 
-value ml_lv_textarea_add_text(value textarea, value text)
-{
-    CAMLparam1(text);
-    char *copy = caml_stat_strdup(String_val(text));
-    lv_textarea_add_text(Obj_val(textarea), copy);
-    caml_stat_free(copy);
-    CAMLreturn(Val_unit);
-}
-
-value ml_lv_textarea_delete_char(value textarea)
-{
-    lv_textarea_delete_char(Obj_val(textarea));
-    return Val_unit;
-}
-
 value ml_lv_slider_create(value parent)
 {
     return Val_pointer(lv_slider_create(Obj_val(parent)));
@@ -525,33 +544,84 @@ value ml_lv_slider_get_value(value slider)
     return Val_long(lv_slider_get_value(Obj_val(slider)));
 }
 
-value ml_lv_roller_create(value parent)
+value ml_lv_spinbox_create(value parent)
 {
-    return Val_pointer(lv_roller_create(Obj_val(parent)));
+    return Val_pointer(lv_spinbox_create(Obj_val(parent)));
 }
 
-value ml_lv_roller_set_options(value roller, value options, value infinite)
+value ml_lv_spinbox_set_range(value spinbox, value min, value max)
 {
-    lv_roller_set_options(Obj_val(roller), String_val(options),
-                          Bool_val(infinite) ? LV_ROLLER_MODE_INFINITE : LV_ROLLER_MODE_NORMAL);
+    lv_spinbox_set_range(Obj_val(spinbox), I32_val(min), I32_val(max));
     return Val_unit;
 }
 
-value ml_lv_roller_set_visible_row_count(value roller, value rows)
+value ml_lv_spinbox_set_digit_format(value spinbox, value digits, value separator)
 {
-    lv_roller_set_visible_row_count(Obj_val(roller), U32_val(rows));
+    lv_spinbox_set_digit_format(Obj_val(spinbox), U32_val(digits), U32_val(separator));
     return Val_unit;
 }
 
-value ml_lv_roller_set_selected(value roller, value index, value anim)
+value ml_lv_spinbox_set_value(value spinbox, value v)
 {
-    lv_roller_set_selected(Obj_val(roller), U32_val(index), Bool_val(anim) ? LV_ANIM_ON : LV_ANIM_OFF);
+    lv_spinbox_set_value(Obj_val(spinbox), I32_val(v));
     return Val_unit;
 }
 
-value ml_lv_roller_get_selected(value roller)
+value ml_lv_spinbox_get_value(value spinbox)
 {
-    return Val_long(lv_roller_get_selected(Obj_val(roller)));
+    return Val_long(lv_spinbox_get_value(Obj_val(spinbox)));
+}
+
+value ml_lv_spinbox_increment(value spinbox)
+{
+    lv_spinbox_increment(Obj_val(spinbox));
+    return Val_unit;
+}
+
+value ml_lv_spinbox_decrement(value spinbox)
+{
+    lv_spinbox_decrement(Obj_val(spinbox));
+    return Val_unit;
+}
+
+value ml_lv_dropdown_create(value parent)
+{
+    return Val_pointer(lv_dropdown_create(Obj_val(parent)));
+}
+
+value ml_lv_dropdown_set_options(value dropdown, value options)
+{
+    lv_dropdown_set_options(Obj_val(dropdown), String_val(options)); /* LVGL copies the options */
+    return Val_unit;
+}
+
+value ml_lv_dropdown_set_selected(value dropdown, value index)
+{
+    lv_dropdown_set_selected(Obj_val(dropdown), U32_val(index));
+    return Val_unit;
+}
+
+value ml_lv_dropdown_get_selected(value dropdown)
+{
+    return Val_long(lv_dropdown_get_selected(Obj_val(dropdown)));
+}
+
+value ml_lv_dropdown_get_selected_str(value dropdown)
+{
+    char text[64];
+    lv_dropdown_get_selected_str(Obj_val(dropdown), text, sizeof text);
+    return caml_copy_string(text);
+}
+
+value ml_lv_dropdown_is_open(value dropdown)
+{
+    return Val_bool(lv_dropdown_is_open(Obj_val(dropdown)));
+}
+
+value ml_lv_dropdown_close(value dropdown)
+{
+    lv_dropdown_close(Obj_val(dropdown));
+    return Val_unit;
 }
 
 value ml_lv_switch_create(value parent)
@@ -559,12 +629,18 @@ value ml_lv_switch_create(value parent)
     return Val_pointer(lv_switch_create(Obj_val(parent)));
 }
 
-/* ---- Groups (keyboard focus) -------------------------------------------- */
-
-static void ml_group_focus_trampoline(lv_group_t *group)
+value ml_lv_checkbox_create(value parent)
 {
-    ml_closure_call(lv_group_get_user_data(group), Val_pointer(group));
+    return Val_pointer(lv_checkbox_create(Obj_val(parent)));
 }
+
+value ml_lv_checkbox_set_text(value checkbox, value text)
+{
+    lv_checkbox_set_text(Obj_val(checkbox), String_val(text)); /* LVGL copies the text */
+    return Val_unit;
+}
+
+/* ---- Groups (keyboard focus) -------------------------------------------- */
 
 value ml_lv_group_create(value unit)
 {
@@ -574,20 +650,21 @@ value ml_lv_group_create(value unit)
 
 value ml_lv_group_delete(value group)
 {
-    value *cell = lv_group_get_user_data(Group_val(group));
     lv_group_delete(Group_val(group));
-    if (cell) ml_closure_free(cell);
     return Val_unit;
 }
 
-value ml_lv_group_set_focus_cb(value group, value closure)
+/* Runs in C, so it also runs while the app is torn down (when callbacks no
+ * longer reach OCaml). */
+static void ml_group_delete_cb(lv_event_t *event)
 {
-    CAMLparam1(closure);
-    value *old = lv_group_get_user_data(Group_val(group));
-    lv_group_set_user_data(Group_val(group), ml_closure_new(closure));
-    lv_group_set_focus_cb(Group_val(group), ml_group_focus_trampoline);
-    if (old) ml_closure_free(old);
-    CAMLreturn(Val_unit);
+    lv_group_delete(lv_event_get_user_data(event));
+}
+
+value ml_lv_group_delete_with(value group, value obj)
+{
+    lv_obj_add_event_cb(Obj_val(obj), ml_group_delete_cb, LV_EVENT_DELETE, Group_val(group));
+    return Val_unit;
 }
 
 value ml_lv_group_set_wrap(value group, value enabled)
@@ -599,6 +676,12 @@ value ml_lv_group_set_wrap(value group, value enabled)
 value ml_lv_group_add_obj(value group, value obj)
 {
     lv_group_add_obj(Group_val(group), Obj_val(obj));
+    return Val_unit;
+}
+
+value ml_lv_group_remove_obj(value obj)
+{
+    lv_group_remove_obj(Obj_val(obj));
     return Val_unit;
 }
 
@@ -622,7 +705,68 @@ value ml_lv_group_focus_prev(value group)
 
 value ml_lv_group_get_focused(value group)
 {
-    return Val_pointer(lv_group_get_focused(Group_val(group)));
+    return Val_pointer_option(lv_group_get_focused(Group_val(group)));
+}
+
+/* ---- Input devices (lv_indev_*) ----------------------------------------- */
+
+value ml_lv_indev_get_next(value indev)
+{
+    return Val_pointer_option(lv_indev_get_next(Pointer_option_val(indev)));
+}
+
+value ml_lv_indev_active(value unit)
+{
+    (void)unit;
+    return Val_pointer_option(lv_indev_active());
+}
+
+value ml_lv_indev_get_type(value indev)
+{
+    return Val_int(lv_indev_get_type(Indev_val(indev)));
+}
+
+value ml_lv_indev_get_group(value indev)
+{
+    return Val_pointer_option(lv_indev_get_group(Indev_val(indev)));
+}
+
+value ml_lv_indev_set_group(value indev, value group)
+{
+    lv_indev_set_group(Indev_val(indev), Pointer_option_val(group));
+    return Val_unit;
+}
+
+value ml_lv_indev_wait_release(value indev)
+{
+    lv_indev_wait_release(Indev_val(indev));
+    return Val_unit;
+}
+
+/* ---- Display and theme -------------------------------------------------- */
+
+value ml_lv_display_get_default(value unit)
+{
+    (void)unit;
+    return Val_pointer(lv_display_get_default());
+}
+
+value ml_lv_display_set_theme(value display, value theme)
+{
+    lv_display_set_theme(Display_val(display), Theme_val(theme));
+    return Val_unit;
+}
+
+value ml_lv_theme_default_init(value display, value primary, value secondary, value dark, value font)
+{
+    return Val_pointer(lv_theme_default_init(Display_val(display), lv_color_hex(U32_val(primary)),
+                                             lv_color_hex(U32_val(secondary)), Bool_val(dark), Font_val(font)));
+}
+
+/* lv_color_to_int gives 0xRRGGBB, the colors' form on the OCaml side. */
+value ml_lv_palette_main(value palette)
+{
+    return Val_long(lv_color_to_int(lv_palette_main((lv_palette_t)Int_val(palette))));
 }
 
 /* ---- Timers ------------------------------------------------------------- */
@@ -659,12 +803,6 @@ value ml_lv_timer_resume(value timer)
     return Val_unit;
 }
 
-value ml_lv_timer_reset(value timer)
-{
-    lv_timer_reset(Timer_val(timer));
-    return Val_unit;
-}
-
 /* ---- The constants lvgl.ml spells out, checked against LVGL 9.5 ---------- */
 
 _Static_assert(LV_ALIGN_TOP_LEFT == 1 && LV_ALIGN_TOP_MID == 2 && LV_ALIGN_TOP_RIGHT == 3 && LV_ALIGN_CENTER == 9,
@@ -676,14 +814,23 @@ _Static_assert(LV_PART_MAIN == 0 && LV_PART_INDICATOR == 0x020000 && LV_PART_KNO
 _Static_assert(LV_STATE_DEFAULT == 0 && LV_STATE_CHECKED == 0x04 && LV_STATE_FOCUSED == 0x08 &&
                    LV_STATE_PRESSED == 0x80,
                "Lvgl.State");
-_Static_assert(LV_OBJ_FLAG_HIDDEN == 0x01 && LV_OBJ_FLAG_CLICKABLE == 0x02 && LV_OBJ_FLAG_SCROLLABLE == 0x10,
+_Static_assert(LV_SIZE_CONTENT == 0x3FFFFFFF, "Lvgl.size_content");
+_Static_assert(LV_OBJ_FLAG_HIDDEN == 0x01 && LV_OBJ_FLAG_CLICKABLE == 0x02 && LV_OBJ_FLAG_SCROLLABLE == 0x10 &&
+                   LV_OBJ_FLAG_SCROLL_ON_FOCUS == 0x400,
                "Lvgl.Flag");
-_Static_assert(LV_EVENT_ALL == 0 && LV_EVENT_PRESSED == 1 && LV_EVENT_CLICKED == 10 && LV_EVENT_RELEASED == 11 &&
+_Static_assert(LV_EVENT_ALL == 0 && LV_EVENT_PRESSED == 1 && LV_EVENT_SHORT_CLICKED == 4 &&
+                   LV_EVENT_LONG_PRESSED_REPEAT == 9 && LV_EVENT_CLICKED == 10 && LV_EVENT_RELEASED == 11 &&
                    LV_EVENT_KEY == 17 && LV_EVENT_FOCUSED == 19 && LV_EVENT_DEFOCUSED == 20 &&
-                   LV_EVENT_VALUE_CHANGED == 35 && LV_EVENT_DELETE == 42,
+                   LV_EVENT_VALUE_CHANGED == 35 && LV_EVENT_READY == 38 && LV_EVENT_DELETE == 42 &&
+                   LV_EVENT_PREPROCESS == 0x8000,
                "Lvgl.Event");
 _Static_assert(LV_OPA_TRANSP == 0 && LV_OPA_COVER == 255, "Lvgl.Opa");
 _Static_assert(LV_TEXT_ALIGN_LEFT == 1 && LV_TEXT_ALIGN_CENTER == 2 && LV_TEXT_ALIGN_RIGHT == 3, "Lvgl.Text_align");
+_Static_assert(LV_FLEX_FLOW_ROW == 0 && LV_FLEX_FLOW_COLUMN == 1, "Lvgl.Flex_flow");
+_Static_assert(LV_FLEX_ALIGN_START == 0 && LV_FLEX_ALIGN_CENTER == 2, "Lvgl.Flex_align");
+_Static_assert(LV_KEY_UP == 17 && LV_KEY_DOWN == 18 && LV_KEY_RIGHT == 19 && LV_KEY_LEFT == 20, "Lvgl.Key");
+_Static_assert(LV_PALETTE_BLUE == 5, "Lvgl.Palette");
+_Static_assert(LV_INDEV_TYPE_KEYPAD == 2, "Lvgl.Indev.Type");
 _Static_assert(CP0_APP_KEY_RELEASED == 0 && CP0_APP_KEY_PRESSED == 1 && CP0_APP_KEY_REPEATED == 2,
                "Lvgl.App.key_state");
 _Static_assert(CP0_APP_MOD_SHIFT == 1 && CP0_APP_MOD_CTRL == 2 && CP0_APP_MOD_ALT == 4, "Lvgl.App.Mod");

@@ -11,9 +11,9 @@ full-screen on the device.
 It greets you with "Hello, OCaml!" over a wallpaper and opens four demos:
 **Colors** (a spinning RGB triangle and a color wheel drawn on an
 `lv_canvas`), **Motion** (a glowing ball to push around, with live physics
-numbers), **REPL** (a terminal-style calculator) and **Widgets** (real LVGL
-widgets: text field, button, slider, counter, roller, switch, driven by the
-keyboard). F/X choose, ENTER opens, TAB goes to the next demo, ESC goes back
+numbers), **REPL** (a terminal-style calculator) and **Widgets** (stock LVGL
+widgets with the default theme, flex layout and a focus group: text area,
+buttons, slider, spinbox, dropdown, switch, checkbox, driven by the keyboard). F/X choose, ENTER opens, TAB goes to the next demo, ESC goes back
 (and quits from home). Keep what you need, delete the rest.
 
 Full guide: [docs/app-development/lvgl-apps.md](../../docs/app-development/lvgl-apps.md).
@@ -61,13 +61,13 @@ The app appears on the home screen within a few seconds.
 
 | Path | What |
 | --- | --- |
-| `src/main.ml` | Entry point: `Lvgl.App.run` builds the page and runs until ESC on the home screen |
+| `src/main.ml` | Entry point: `Lvgl.App.run` sets the theme, builds the page and runs until ESC on the home screen |
 | `src/app_page.ml` | The page: owns the screens, shows one at a time, routes keys. Start here. |
-| `src/app_ui.ml` | Language name and color, palette, `action`, key helpers, the `screen` record |
+| `src/app_ui.ml` | Language name and color, palette, `set_theme`, `action`, key helpers, the `screen` record |
 | `src/home_screen.ml` | Home screen: wallpaper, greeting, menu |
 | `src/colors_screen.ml`, `motion_screen.ml`, `repl_screen.ml`, `widgets_screen.ml` | The four demos (`widgets_screen.ml` explains how keys drive LVGL widgets on the device) |
 | `src/pixel_canvas.ml` | Pixel drawing on an `lv_canvas`: `fill_rect`, `fill_circle`, `draw_line`, ... (used by Colors and Motion) |
-| `src/lvgl.ml` | The LVGL and `cp0_app.h` bindings: `Lvgl.Obj`, `Label`, `Textarea`, `Group`, `Timer`, `App`, constants. How to add more is at its top |
+| `src/lvgl.ml` | The LVGL and `cp0_app.h` bindings: `Lvgl.Obj`, `Label`, `Textarea`, `Dropdown`, `Group`, `Indev`, `Theme`, `Timer`, `App`, constants. How to add more is at its top |
 | `src/lvgl_stubs.c` | The C side of `lvgl.ml`: one small function per call, pointer and callback handling explained at its top |
 | `src/calc.ml`, `test/` | The REPL's calculator language and its tests |
 | `src/dune`, `src/lvgl_flags.ml` | Build: `lvgl_flags.ml` reads `scripts/lvgl-runtime/out/<desktop\|device>/` and writes the C and link flags for dune (`CP0_LVGL_TARGET=device` selects the device) |

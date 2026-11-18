@@ -1,409 +1,379 @@
 (* SPDX-FileCopyrightText: 2026 M5Stack Technology CO LTD
    SPDX-License-Identifier: MIT
 
-   Demo 4, widgets: a small form of real LVGL widgets (lv_textarea, lv_button,
-   lv_slider, a -/+ counter, lv_roller, lv_switch) in an lv_group. F/X move the
-   focus, Z/C change the value, ENTER presses; the text field takes typing.
+   Demo 4, widgets: a form of stock LVGL widgets with the default theme, laid
+   out with flex and driven by LVGL's own focus group and widget events:
+   lv_textarea, lv_button, lv_slider, lv_spinbox, lv_dropdown, lv_switch,
+   lv_checkbox. F/X move the focus, Z/C change the value, ENTER presses; the
+   text area takes typing.
 
-   How keys reach the widgets
-   --------------------------
-   cp0_lvgl delivers every key twice: first to the app (Lvgl.App.run's on_key,
-   with the Linux key code and the text it types), then through LVGL's keypad
-   input device to the focused widget of an lv_group, as LV_EVENT_KEY. That
-   second path cannot drive a form on the CardputerZero: the keyboard has no
-   arrow keys (F/X/Z/C turn into arrows, so they could not be typed into the
-   text field), letters arrive as key codes rather than characters, and LVGL
-   only moves the focus on LV_KEY_NEXT/LV_KEY_PREV, which the keyboard never
-   sends.
+   Stock LVGL, plus one adapter for the keyboard
+   ---------------------------------------------
+   Everything on this screen is plain LVGL:
+   - the look is LVGL's default theme (App_ui.set_theme, called before any
+     widget exists). The widgets get sizes, never colors; the Color row runs
+     the theme again with another accent color and every widget follows;
+   - the layout is flex: a scrolling column of rows, each a label and widgets;
+   - the focus is an lv_group holding the form's widgets, which the keypad
+     input device uses while the screen shows. The focused widget gets
+     LV_STATE_FOCUS_KEY (the theme draws an outline) and scrolls into view;
+   - cp0_lvgl's keypad input device sends each key to the focused widget as
+     Event.key: arrows (F/X/Z/C on the CardputerZero), ENTER, ESC,
+     BACKSPACE ... as LVGL's keys, and the character for a key that types
+     one. Each widget reacts the way it always does: the text area takes
+     typing and BACKSPACE, DEL, LEFT/RIGHT, HOME/END; ENTER clicks a button,
+     toggles the switch and the checkbox, opens the dropdown and picks an
+     option; LEFT/RIGHT move the slider; ESC closes the dropdown;
+   - the form reacts only to widget events (Event.clicked,
+     Event.value_changed, Event.ready), so a mouse click in the desktop
+     window does exactly what the keys do.
 
-   So while this screen shows it turns that path off
-   (Lvgl.App.set_keypad_intercept) and handles the keys itself, using LVGL's
-   own machinery for the rest:
-   - the widgets sit in an lv_group: F/X call Group.focus_prev/next, and the
-     focused widget gets State.focused, which its styles react to;
-   - Z/C and ENTER set the focused widget's value through its API and send the
-     event LVGL itself would send (Event.value_changed, Event.clicked);
-   - the form reacts to those events only, so a mouse click in the desktop
-     window (or a touch screen) works the same way as the keys;
-   - typed text goes into the lv_textarea with Textarea.add_text, and the
-     keyboard is in text mode while the text field has the focus.
-   The same works on the device and on the desktop. *)
+   The CardputerZero keyboard needs one small adapter and one switch on top:
+   - Moving the focus. LVGL moves it only on LV_KEY_NEXT/LV_KEY_PREV, which
+     the keyboard never sends; it has no arrow keys either, so cp0_lvgl turns
+     F/X/Z/C into UP/DOWN/LEFT/RIGHT. [focus_keys], an Event.key preprocess
+     handler on every widget of the form, turns UP/DOWN into
+     Group.focus_prev/next, except while the dropdown's list is open (there
+     UP/DOWN choose an option). ([count_keys] gives the spinbox's LEFT/RIGHT,
+     which would move between digits, to its value.)
+   - Typing. While the text area has the focus the keyboard is in text mode,
+     so F/X/Z/C type letters instead of acting as arrows
+     (Lvgl.App.set_text_input). *)
 
-let field = 0x080A0E
-let border = 0x3C4652
-let face = 0x1C222A
-
-(* The form's rows, top to bottom; the status line sits above them. *)
-let row_labels = [| "Name"; "Button"; "Volume"; "Count"; "Color"; "Sound" |]
-let rows_top = 18
-let row_height = 18
-let widget_left = 72 (* labels on the left, widgets from here *)
-let widget_width = 242
-let slider_width = 176
-let volume_step = 5
+let form_top = 18 (* below the status line *)
+let label_width = 62 (* the column of row labels *)
 let max_name = 24
-let press_ms = 10 * App_ui.frame_ms (* how long the button shows as pressed *)
+let form_hint = "F/X move  Z/C change  ENTER press"
+let typing_hint = "type a name  ENTER next"
 
-(* The chooser's options: each template language and GitHub's color for it. *)
-let choices = [| ("Rust", 0xDEA584); ("Zig", 0xEC915C); ("OCaml", 0xEF7A08); ("C++", 0xF34B7D) |]
+(* The Color row: each template's language and GitHub's color for it, in the
+   dropdown's order. This template starts on its own language, OCaml. *)
+let color_options = [ "Rust"; "Zig"; "OCaml"; "C++" ]
+let colors = [| 0xDEA584; 0xEC915C; 0xEF7A08; 0xF34B7D |]
+let language_option = 2
+
+(* Key events, before the widget itself handles them. *)
+let key_preprocess = Lvgl.Event.(key lor preprocess)
 
 type t = {
   root : Lvgl.obj;
-  group : Lvgl.group;
-  bars : Lvgl.obj array;
-  labels : Lvgl.obj array;
-  widgets : Lvgl.obj array;  (* the focusable widget of each row *)
-  name : Lvgl.obj;
-  button : Lvgl.obj;
-  volume : Lvgl.obj;
-  volume_value : Lvgl.obj;
-  counter : Lvgl.obj;
-  minus : Lvgl.obj;
-  plus : Lvgl.obj;
-  count_value : Lvgl.obj;
-  chooser : Lvgl.obj;
-  chooser_left : Lvgl.obj;
-  chooser_right : Lvgl.obj;
-  swatch : Lvgl.obj;
-  sound : Lvgl.obj;
-  sound_value : Lvgl.obj;
+  group : Lvgl.group;  (* the form's focusable widgets, in F/X order *)
+  mutable previous_group : Lvgl.group option;  (* the keypad's group before this screen showed *)
   status : Lvgl.obj;
   hint : Lvgl.obj;
-  release_timer : Lvgl.timer;
-  mutable count : int;
+  name : Lvgl.obj;
+  hello : Lvgl.obj;
+  add_one : Lvgl.obj;
+  volume : Lvgl.obj;
+  volume_value : Lvgl.obj;
+  minus : Lvgl.obj;
+  count : Lvgl.obj;
+  plus : Lvgl.obj;
+  color : Lvgl.obj;
+  sound : Lvgl.obj;
+  sound_value : Lvgl.obj;
+  like : Lvgl.obj;
 }
 
-let default_choice () =
-  let rec find index =
-    if index >= Array.length choices then 0 else if fst choices.(index) = App_ui.language then index else find (index + 1)
-  in
-  find 0
+(* ---- Building the form ---- *)
 
-(* The form's widgets are styled from scratch (no theme), flat like the rest of the app. *)
-let style_box obj background =
-  Lvgl.Obj.set_style_bg_color obj background;
-  Lvgl.Obj.set_style_bg_opa obj Lvgl.Opa.cover;
-  Lvgl.Obj.set_style_border_width obj 1;
-  Lvgl.Obj.set_style_border_color obj border;
-  Lvgl.Obj.set_style_text_font obj Lvgl.Font.montserrat_14;
-  Lvgl.Obj.set_style_text_color obj App_ui.text_color
+(* The form: a flex column that scrolls when the rows don't fit. It keeps the
+   theme's scrollbar but not its card background. *)
+let make_column root =
+  let column = Lvgl.Obj.create root in
+  Lvgl.Obj.set_pos column ~x:0 ~y:form_top;
+  Lvgl.Obj.set_size column ~width:App_ui.content_width ~height:(App_ui.hint_top - form_top);
+  Lvgl.Obj.set_style_bg_opa column Lvgl.Opa.transp;
+  Lvgl.Obj.set_style_border_width column 0;
+  Lvgl.Obj.set_style_pad_all column 2;
+  Lvgl.Obj.set_style_pad_row column 0;
+  Lvgl.Obj.set_flex_flow column Lvgl.Flex_flow.column;
+  column
 
-let make_box_button parent text ~x ~y ~width =
+(* One row of the form: a transparent flex row holding a fixed-width label;
+   the caller adds the row's widgets after it. *)
+let make_row column text =
+  let row = Lvgl.Obj.create column in
+  Lvgl.Obj.remove_style_all row (* layout only: no background, border or padding *);
+  Lvgl.Obj.set_size row ~width:(Lvgl.pct 100) ~height:Lvgl.size_content;
+  Lvgl.Obj.set_flex_flow row Lvgl.Flex_flow.row;
+  Lvgl.Obj.set_flex_align row ~main:Lvgl.Flex_align.start ~cross:Lvgl.Flex_align.center
+    ~track:Lvgl.Flex_align.center;
+  Lvgl.Obj.set_style_pad_all row 4 (* room for the theme's focus outline around the widgets *);
+  Lvgl.Obj.set_style_pad_column row 6;
+  let label = Lvgl.Label.create row in
+  Lvgl.Label.set_text label text;
+  Lvgl.Obj.set_width label label_width;
+  row
+
+(* The default theme pads widgets for bigger screens. On 320 x 150 the form
+   trims the vertical padding of the taller widgets to fit more rows. *)
+let compact widget = Lvgl.Obj.set_style_pad_ver widget 4
+
+let make_button parent text =
   let button = Lvgl.Button.create parent in
-  Lvgl.Obj.remove_style_all button;
-  style_box button face;
-  Lvgl.Obj.set_pos button ~x ~y;
-  Lvgl.Obj.set_size button ~width ~height:row_height;
+  compact button;
   let label = Lvgl.Label.create button in
   Lvgl.Label.set_text label text;
   Lvgl.Obj.center label;
   button
 
-(* Each row's focus bar and label. *)
-let make_rows root =
-  let rows =
-    Array.mapi
-      (fun row text ->
-        let y = rows_top + (row * row_height) in
-        let bar = App_ui.make_panel root ~x:0 ~y ~width:3 ~height:row_height App_ui.language_color Lvgl.Opa.cover in
-        let label = App_ui.make_label root text Lvgl.Font.montserrat_14 App_ui.muted_color in
-        Lvgl.Obj.set_pos label ~x:8 ~y:(y + 1);
-        (bar, label))
-      row_labels
-  in
-  (Array.map fst rows, Array.map snd rows)
+(* The spinbox's -/+ buttons are for the mouse: Z/C do the same from the
+   keyboard. Keep them out of every focus group (Button.create adds a button
+   to the default group, if there is one). *)
+let make_step_button row text =
+  let button = make_button row text in
+  Lvgl.Group.remove_obj button;
+  button
 
-let make_name root y =
-  let name = Lvgl.Textarea.create root in
-  Lvgl.Obj.remove_style_all name;
-  style_box name field;
+let make_name_row column =
+  let row = make_row column "Name" in
+  let name = Lvgl.Textarea.create row in
   Lvgl.Textarea.set_one_line name true;
   Lvgl.Textarea.set_placeholder_text name "your name";
   Lvgl.Textarea.set_max_length name max_name;
-  Lvgl.Obj.set_style_pad_hor name 4;
-  Lvgl.Obj.set_pos name ~x:widget_left ~y;
-  Lvgl.Obj.set_size name ~width:widget_width ~height:row_height;
-  Lvgl.Obj.set_style_text_color name App_ui.muted_color ~part:Lvgl.Part.textarea_placeholder;
-  (* An empty focused field shows just the cursor: a solid block that does not blink. *)
-  Lvgl.Obj.set_style_text_opa name Lvgl.Opa.transp ~part:Lvgl.Part.textarea_placeholder ~state:Lvgl.State.focused;
-  Lvgl.Obj.set_style_bg_opa name Lvgl.Opa.cover ~part:Lvgl.Part.cursor ~state:Lvgl.State.focused;
-  Lvgl.Obj.set_style_pad_right name 4 ~part:Lvgl.Part.cursor;
-  Lvgl.Obj.set_style_anim_duration name 0 ~part:Lvgl.Part.cursor;
+  Lvgl.Obj.set_flex_grow name 1;
+  compact name;
   name
 
-let make_button root y =
-  let button = make_box_button root "Say hello" ~x:widget_left ~y ~width:120 in
-  Lvgl.Obj.set_style_text_color button App_ui.background_color ~state:Lvgl.State.pressed;
-  button
+let make_buttons_row column =
+  let row = make_row column "Buttons" in
+  let hello = make_button row "Say hello" in
+  let add_one = make_button row "Count +1" in
+  (hello, add_one)
 
-let make_volume root y =
-  let volume = Lvgl.Slider.create root in
-  Lvgl.Obj.remove_style_all volume;
-  Lvgl.Obj.set_pos volume ~x:widget_left ~y:(y + 7);
-  Lvgl.Obj.set_size volume ~width:slider_width ~height:4;
+let make_volume_row column =
+  let row = make_row column "Volume" in
+  let volume = Lvgl.Slider.create row in
   Lvgl.Slider.set_range volume ~min:0 ~max:100;
   Lvgl.Slider.set_value volume 50 ~anim:false;
-  Lvgl.Obj.set_style_bg_color volume border;
-  Lvgl.Obj.set_style_bg_opa volume Lvgl.Opa.cover;
-  Lvgl.Obj.set_style_bg_opa volume Lvgl.Opa.cover ~part:Lvgl.Part.indicator;
-  (* The knob is the 4 px track height grown by its padding: 6 x 14. *)
-  Lvgl.Obj.set_style_bg_color volume App_ui.muted_color ~part:Lvgl.Part.knob;
-  Lvgl.Obj.set_style_bg_color volume App_ui.text_color ~part:Lvgl.Part.knob ~state:Lvgl.State.focused;
-  Lvgl.Obj.set_style_bg_opa volume Lvgl.Opa.cover ~part:Lvgl.Part.knob;
-  Lvgl.Obj.set_style_pad_hor volume 1 ~part:Lvgl.Part.knob;
-  Lvgl.Obj.set_style_pad_ver volume 5 ~part:Lvgl.Part.knob;
-  let value = App_ui.make_label root "50" Lvgl.Font.montserrat_14 App_ui.text_color in
-  Lvgl.Obj.set_pos value ~x:(widget_left + slider_width + 12) ~y:(y + 1);
+  Lvgl.Obj.set_flex_grow volume 1;
+  let value = Lvgl.Label.create row in
+  Lvgl.Label.set_text value "50";
+  Lvgl.Obj.set_width value 30;
   (volume, value)
 
-(* One focusable container holding "-", the value and "+". *)
-let make_counter root y =
-  let counter =
-    App_ui.make_panel root ~x:widget_left ~y ~width:108 ~height:row_height App_ui.background_color Lvgl.Opa.transp
-  in
-  let minus = make_box_button counter "-" ~x:0 ~y:0 ~width:24 in
-  let plus = make_box_button counter "+" ~x:84 ~y:0 ~width:24 in
-  let value = App_ui.make_label counter "0" Lvgl.Font.montserrat_14 App_ui.text_color in
-  Lvgl.Obj.set_width value 60;
-  Lvgl.Obj.set_style_text_align value Lvgl.Text_align.center;
-  Lvgl.Obj.set_pos value ~x:24 ~y:1;
-  (counter, minus, plus, value)
+let make_count_row column =
+  let row = make_row column "Count" in
+  let minus = make_step_button row "-" in
+  let count = Lvgl.Spinbox.create row in
+  Lvgl.Spinbox.set_range count ~min:(-999) ~max:999;
+  Lvgl.Spinbox.set_digit_format count ~digits:3 ~separator:0;
+  Lvgl.Obj.set_width count 64;
+  compact count;
+  let plus = make_step_button row "+" in
+  (minus, count, plus)
 
-let make_chooser root y =
-  let left = App_ui.make_label root "<" Lvgl.Font.montserrat_14 App_ui.muted_color in
-  Lvgl.Obj.set_pos left ~x:widget_left ~y:(y + 1);
-  let chooser = Lvgl.Roller.create root in
-  Lvgl.Obj.remove_style_all chooser;
-  Lvgl.Obj.set_style_text_font chooser Lvgl.Font.montserrat_14;
-  Lvgl.Obj.set_style_text_font chooser Lvgl.Font.montserrat_14 ~part:Lvgl.Part.selected;
-  Lvgl.Obj.set_style_text_align chooser Lvgl.Text_align.center;
-  Lvgl.Roller.set_options chooser (Array.to_list (Array.map fst choices));
-  Lvgl.Roller.set_visible_row_count chooser 1;
-  Lvgl.Roller.set_selected chooser (default_choice ()) ~anim:false;
-  Lvgl.Obj.set_pos chooser ~x:(widget_left + 12) ~y:(y + 1);
-  Lvgl.Obj.set_width chooser 56;
-  let right = App_ui.make_label root ">" Lvgl.Font.montserrat_14 App_ui.muted_color in
-  Lvgl.Obj.set_pos right ~x:(widget_left + 72) ~y:(y + 1);
-  let swatch =
-    App_ui.make_panel root ~x:(widget_left + 88) ~y:(y + 2) ~width:14 ~height:(row_height - 4) App_ui.language_color
-      Lvgl.Opa.cover
-  in
-  (left, chooser, right, swatch)
+let make_color_row column =
+  let row = make_row column "Color" in
+  let color = Lvgl.Dropdown.create row in
+  Lvgl.Dropdown.set_options color color_options;
+  Lvgl.Dropdown.set_selected color language_option;
+  Lvgl.Obj.set_width color 100;
+  compact color;
+  color
 
-let make_switch root y =
-  let sound = Lvgl.Switch.create root in
-  Lvgl.Obj.remove_style_all sound;
-  Lvgl.Obj.set_pos sound ~x:widget_left ~y:(y + 2);
-  Lvgl.Obj.set_size sound ~width:32 ~height:(row_height - 4);
-  Lvgl.Obj.set_style_bg_color sound border;
-  Lvgl.Obj.set_style_bg_opa sound Lvgl.Opa.cover;
-  Lvgl.Obj.set_style_bg_opa sound Lvgl.Opa.cover ~part:Lvgl.Part.indicator ~state:Lvgl.State.checked;
-  Lvgl.Obj.set_style_bg_color sound App_ui.text_color ~part:Lvgl.Part.knob;
-  Lvgl.Obj.set_style_bg_opa sound Lvgl.Opa.cover ~part:Lvgl.Part.knob;
-  Lvgl.Obj.set_style_pad_all sound (-2) ~part:Lvgl.Part.knob;
-  Lvgl.Obj.set_style_outline_color sound App_ui.text_color ~state:Lvgl.State.focused;
-  Lvgl.Obj.set_style_outline_width sound 1 ~state:Lvgl.State.focused;
-  Lvgl.Obj.set_style_outline_pad sound 2 ~state:Lvgl.State.focused;
+let make_sound_row column =
+  let row = make_row column "Sound" in
+  let sound = Lvgl.Switch.create row in
   Lvgl.Obj.add_state sound Lvgl.State.checked;
-  let value = App_ui.make_label root "on" Lvgl.Font.montserrat_14 App_ui.text_color in
-  Lvgl.Obj.set_pos value ~x:(widget_left + 40) ~y:(y + 1);
+  let value = Lvgl.Label.create row in
+  Lvgl.Label.set_text value "on";
   (sound, value)
 
-let accent form = snd choices.(Lvgl.Roller.get_selected form.chooser)
+let make_like_row column =
+  let row = make_row column "Like" in
+  let like = Lvgl.Checkbox.create row in
+  Lvgl.Checkbox.set_text like "I like LVGL";
+  like
+
+(* ---- The keyboard adapter ---- *)
+
+(* F/X (UP/DOWN) move the focus to the previous/next widget. *)
+let focus_keys form event =
+  let key = Lvgl.Event.get_key event in
+  let widget = Lvgl.Event.target event in
+  let in_open_list = widget == form.color && Lvgl.Dropdown.is_open widget in
+  if (key = Lvgl.Key.up || key = Lvgl.Key.down) && not in_open_list then begin
+    if key = Lvgl.Key.up then Lvgl.Group.focus_prev form.group else Lvgl.Group.focus_next form.group;
+    Lvgl.Event.stop_processing event (* the widget itself never sees the key *)
+  end
+
+(* Z/C (LEFT/RIGHT) step the spinbox's value; nothing else edits it (typed
+   characters included: the spinbox is a text area underneath). *)
+let count_keys event =
+  let spinbox = Lvgl.Event.target event in
+  let key = Lvgl.Event.get_key event in
+  if key <> Lvgl.Key.up && key <> Lvgl.Key.down (* focus moves *) then begin
+    if key = Lvgl.Key.left then Lvgl.Spinbox.decrement spinbox
+    else if key = Lvgl.Key.right then Lvgl.Spinbox.increment spinbox;
+    Lvgl.Event.stop_processing event
+  end
+
+(* ENTER in the one-line text area: on to the next widget. The ENTER key is
+   still down; waiting for its release keeps it from clicking the newly
+   focused button. *)
+let name_ready form =
+  Lvgl.Group.focus_next form.group;
+  Option.iter Lvgl.Indev.wait_release (Lvgl.Indev.active ())
+
+(* ---- Widget events ---- *)
+
 let set_status form text = Lvgl.Label.set_text form.status text
 
-let set_count form count status =
-  form.count <- count;
-  Lvgl.Label.set_text form.count_value (string_of_int count);
-  set_status form status
+(* The text area has the focus: keys type text, and the hint says so. *)
+let set_typing form typing =
+  Lvgl.Label.set_text form.hint (if typing then typing_hint else form_hint);
+  if App_ui.shown form.root then Lvgl.App.set_text_input typing
 
-let show_if obj visible = if visible then Lvgl.Obj.remove_flag obj Lvgl.Flag.hidden else Lvgl.Obj.add_flag obj Lvgl.Flag.hidden
+let say_hello form =
+  let name = String.trim (Lvgl.Textarea.get_text form.name) in
+  set_status form (Printf.sprintf "Hello, %s!" (if name = "" then "stranger" else name))
 
-(* The row markers that are not LVGL focus styles: accent bar, label colors,
-   counter and chooser decorations, the hint, and the keyboard mode. *)
-let refresh_focus form =
-  let focused = Lvgl.Group.get_focused form.group in
-  let accent_color = accent form in
-  Array.iteri
-    (fun row widget ->
-      let is_focused = widget == focused in
-      show_if form.bars.(row) is_focused;
-      Lvgl.Obj.set_style_text_color form.labels.(row) (if is_focused then accent_color else App_ui.muted_color))
-    form.widgets;
-  let counter_border = if focused == form.counter then accent_color else border in
-  Lvgl.Obj.set_style_border_color form.minus counter_border;
-  Lvgl.Obj.set_style_border_color form.plus counter_border;
-  let arrows = if focused == form.chooser then accent_color else App_ui.muted_color in
-  Lvgl.Obj.set_style_text_color form.chooser_left arrows;
-  Lvgl.Obj.set_style_text_color form.chooser_right arrows;
+(* The spinbox reports the change (Event.value_changed). *)
+let count_plus_one form = Lvgl.Spinbox.set_value form.count (Lvgl.Spinbox.get_value form.count + 1)
 
-  let typing = focused == form.name in
-  Lvgl.Label.set_text form.hint (if typing then "type a name  ENTER next" else "F/X move  Z/C change  ENTER press");
-  if not (Lvgl.Obj.has_flag form.root Lvgl.Flag.hidden) then Lvgl.App.set_text_input typing
+let volume_changed form =
+  let value = string_of_int (Lvgl.Slider.get_value form.volume) in
+  Lvgl.Label.set_text form.volume_value value;
+  set_status form ("Volume " ^ value)
 
-(* The accent color is whatever the chooser picked; every focus style uses it. *)
-let apply_accent form =
-  let color = accent form in
-  let open Lvgl in
-  Obj.set_style_border_color form.name color ~state:State.focused;
-  Obj.set_style_bg_color form.name color ~part:Part.cursor ~state:State.focused;
-  Obj.set_style_border_color form.button color ~state:State.focused;
-  Obj.set_style_bg_color form.button color ~state:State.pressed;
-  Obj.set_style_bg_color form.volume color ~part:Part.indicator;
-  Obj.set_style_text_color form.chooser color ~part:Part.selected;
-  Obj.set_style_bg_color form.swatch color;
-  Obj.set_style_bg_color form.sound color ~part:Part.indicator ~state:State.checked;
-  Obj.set_style_text_color form.status color;
-  refresh_focus form
+let count_changed form = set_status form (Printf.sprintf "Count %d" (Lvgl.Spinbox.get_value form.count))
 
-(* The form reacts to LVGL events, whether a key or a pointer caused them. *)
+let color_changed form =
+  let color = colors.(Lvgl.Dropdown.get_selected form.color) in
+  App_ui.set_theme color (* every themed widget in the app takes the new accent color *);
+  Lvgl.Obj.set_style_text_color form.status color;
+  set_status form ("Color " ^ Lvgl.Dropdown.get_selected_str form.color)
+
+let sound_changed form =
+  let state = if Lvgl.Obj.has_state form.sound Lvgl.State.checked then "on" else "off" in
+  Lvgl.Label.set_text form.sound_value state;
+  set_status form ("Sound " ^ state)
+
+let like_changed form =
+  set_status form (if Lvgl.Obj.has_state form.like Lvgl.State.checked then "Thanks!" else "Oh no")
+
+(* Every focusable widget: into the group (F/X order is the order of these
+   calls), the adapter for F/X, and scrolled into view when it gets the focus. *)
+let add_to_form form widget =
+  Lvgl.Group.add_obj form.group widget;
+  Lvgl.Obj.add_event_cb widget key_preprocess (focus_keys form);
+  Lvgl.Obj.add_flag widget Lvgl.Flag.scroll_on_focus
+
 let connect form =
-  Lvgl.Obj.add_event_cb form.button Lvgl.Event.clicked (fun _ ->
-      let name = String.trim (Lvgl.Textarea.get_text form.name) in
-      set_status form (Printf.sprintf "Hello, %s!" (if name = "" then "stranger" else name)));
-  Lvgl.Obj.add_event_cb form.volume Lvgl.Event.value_changed (fun _ ->
-      let value = string_of_int (Lvgl.Slider.get_value form.volume) in
-      Lvgl.Label.set_text form.volume_value value;
-      set_status form ("Volume " ^ value));
-  Lvgl.Obj.add_event_cb form.minus Lvgl.Event.clicked (fun _ ->
-      set_count form (form.count - 1) (Printf.sprintf "Count %d" (form.count - 1)));
-  Lvgl.Obj.add_event_cb form.plus Lvgl.Event.clicked (fun _ ->
-      set_count form (form.count + 1) (Printf.sprintf "Count %d" (form.count + 1)));
-  Lvgl.Obj.add_event_cb form.chooser Lvgl.Event.value_changed (fun _ ->
-      apply_accent form;
-      set_status form ("Color " ^ fst choices.(Lvgl.Roller.get_selected form.chooser)));
-  Lvgl.Obj.add_event_cb form.sound Lvgl.Event.value_changed (fun _ ->
-      let state = if Lvgl.Obj.has_state form.sound Lvgl.State.checked then "on" else "off" in
-      Lvgl.Label.set_text form.sound_value state;
-      set_status form ("Sound " ^ state))
+  let open Lvgl in
+  List.iter (add_to_form form)
+    [ form.name; form.hello; form.add_one; form.volume; form.count; form.color; form.sound; form.like ];
+  Obj.add_event_cb form.name Event.focused (fun _ -> set_typing form true);
+  Obj.add_event_cb form.name Event.defocused (fun _ -> set_typing form false);
+  Obj.add_event_cb form.name Event.ready (fun _ -> name_ready form);
+  Obj.add_event_cb form.hello Event.clicked (fun _ -> say_hello form);
+  Obj.add_event_cb form.add_one Event.clicked (fun _ -> count_plus_one form);
+  Obj.add_event_cb form.volume Event.value_changed (fun _ -> volume_changed form);
+  Obj.add_event_cb form.count key_preprocess count_keys;
+  Obj.add_event_cb form.count Event.value_changed (fun _ -> count_changed form);
+  (* As in LVGL's spinbox example: a click steps once, holding the mouse
+     button repeats. *)
+  List.iter
+    (fun code ->
+      Obj.add_event_cb form.minus code (fun _ -> Spinbox.decrement form.count);
+      Obj.add_event_cb form.plus code (fun _ -> Spinbox.increment form.count))
+    [ Event.short_clicked; Event.long_pressed_repeat ];
+  Obj.add_event_cb form.color Event.value_changed (fun _ -> color_changed form);
+  Obj.add_event_cb form.sound Event.value_changed (fun _ -> sound_changed form);
+  Obj.add_event_cb form.like Event.value_changed (fun _ -> like_changed form)
 
-(* ENTER on the button: show it pressed for a moment and click it. *)
-let press_button form =
-  Lvgl.Obj.add_state form.button Lvgl.State.pressed;
-  Lvgl.Timer.reset form.release_timer;
-  Lvgl.Timer.resume form.release_timer;
-  Lvgl.Obj.send_event form.button Lvgl.Event.clicked
+(* ---- The screen ---- *)
 
-(* Z/C (or left/right): step the focused widget's value. *)
-let change form step =
-  let focused = Lvgl.Group.get_focused form.group in
-  if focused == form.volume then begin
-    let value = Lvgl.Slider.get_value form.volume + (step * volume_step) in
-    Lvgl.Slider.set_value form.volume (max 0 (min 100 value)) ~anim:false;
-    Lvgl.Obj.send_event form.volume Lvgl.Event.value_changed
-  end
-  else if focused == form.counter then Lvgl.Obj.send_event (if step < 0 then form.minus else form.plus) Lvgl.Event.clicked
-  else if focused == form.chooser then begin
-    let count = Array.length choices in
-    Lvgl.Roller.set_selected form.chooser ((Lvgl.Roller.get_selected form.chooser + count + step) mod count) ~anim:false;
-    Lvgl.Obj.send_event form.chooser Lvgl.Event.value_changed
-  end
-  else if focused == form.sound then begin
-    Lvgl.Obj.set_state form.sound Lvgl.State.checked (not (Lvgl.Obj.has_state form.sound Lvgl.State.checked));
-    Lvgl.Obj.send_event form.sound Lvgl.Event.value_changed
-  end
-
-(* ENTER or SPACE on the focused widget. *)
-let activate form =
-  let focused = Lvgl.Group.get_focused form.group in
-  if focused == form.button then press_button form
-  else if focused == form.counter then set_count form 0 "Count reset"
-  else if focused == form.chooser || focused == form.sound then change form 1
+let keypads () = List.filter (fun indev -> Lvgl.Indev.get_type indev = Lvgl.Indev.Type.keypad) (Lvgl.Indev.all ())
 
 let on_show form =
-  (* Keys come only through on_key while the form shows (see the top of this file). *)
-  Lvgl.App.set_keypad_intercept true;
-  refresh_focus form
+  (* The keypad input device(s) use the form's group while the screen shows.
+     The key that opened the screen (4, ENTER, TAB) is still being handled:
+     Indev.wait_release keeps it from reaching the focused widget (ENTER would
+     leave the text area, 4 would be typed into it). *)
+  List.iter
+    (fun keypad ->
+      form.previous_group <- Lvgl.Indev.get_group keypad;
+      Lvgl.Indev.set_group keypad (Some form.group);
+      Lvgl.Indev.wait_release keypad)
+    (keypads ());
+  (* Focus a widget, now from the keypad, so it gets LV_STATE_FOCUS_KEY (the
+     theme's outline) and its Event.focused handlers run: the one that had the
+     focus, or the first time the first one (hidden widgets can't take the
+     focus, so none has it yet). *)
+  (match Lvgl.Group.get_focused form.group with
+  | Some focused -> Lvgl.Group.focus_obj focused
+  | None -> Lvgl.Group.focus_next form.group);
+  (* LVGL 9.5 does not grow the drawing area of a widget that was never drawn
+     when its new state also changes its layout, as the text area's cursor
+     style does; without this the first outline would be clipped away. *)
+  Option.iter Lvgl.Obj.refresh_ext_draw_size (Lvgl.Group.get_focused form.group)
 
-let on_hide () =
-  Lvgl.App.set_keypad_intercept false;
+let on_hide form =
+  Lvgl.Dropdown.close form.color (* its list belongs to the LVGL screen, not to this container *);
+  List.iter
+    (fun indev ->
+      match Lvgl.Indev.get_group indev with
+      | Some group when group == form.group -> Lvgl.Indev.set_group indev form.previous_group
+      | _ -> ())
+    (Lvgl.Indev.all ());
   Lvgl.App.set_text_input false
 
+(* Only the app's keys; LVGL's keypad device delivers every key to the
+   focused widget as well. ESC first closes an open dropdown list: LVGL gets
+   the same ESC right after this and closes it. *)
 let handle_key form (key : Lvgl.App.key) : App_ui.action =
   let open Lvgl.Keys in
-  let code = key.code in
-  if code = esc then Home
-  else if code = tab then Next
-  else begin
-    (* Real arrow keys always move the focus, even out of the text field. *)
-    if code = up then Lvgl.Group.focus_prev form.group
-    else if code = down then Lvgl.Group.focus_next form.group
-    else if Lvgl.Group.get_focused form.group == form.name then begin
-      (* In the text field F/X/Z/C are letters; ENTER moves on. *)
-      if code = enter then Lvgl.Group.focus_next form.group
-      else if code = backspace then Lvgl.Textarea.delete_char form.name
-      else Option.iter (Lvgl.Textarea.add_text form.name) (App_ui.typed_text key)
-    end
-    else begin
-      match App_ui.direction code with
-      | Some Up -> Lvgl.Group.focus_prev form.group
-      | Some Down -> Lvgl.Group.focus_next form.group
-      | Some Left -> change form (-1)
-      | Some Right -> change form 1
-      | None -> if code = enter || code = space then activate form
-    end;
-    Stay
-  end
+  if key.code = esc then if Lvgl.Dropdown.is_open form.color then Stay else Home
+  else if key.code = tab then Next
+  else Stay
 
 let create parent =
   let root = App_ui.screen_root parent in
   let status = App_ui.make_label root "Try every widget" Lvgl.Font.montserrat_14 App_ui.language_color in
   Lvgl.Obj.set_pos status ~x:8 ~y:0;
   ignore (App_ui.make_demo_keys root);
-  let bars, labels = make_rows root in
-  let row_top row = rows_top + (row * row_height) in
-  let name = make_name root (row_top 0) in
-  let button = make_button root (row_top 1) in
-  let volume, volume_value = make_volume root (row_top 2) in
-  let counter, minus, plus, count_value = make_counter root (row_top 3) in
-  let chooser_left, chooser, chooser_right, swatch = make_chooser root (row_top 4) in
-  let sound, sound_value = make_switch root (row_top 5) in
-  let hint = App_ui.make_hint root "" in
-  (* Paused until the button is pressed; then it releases the button once and pauses again. *)
-  let release_timer =
-    Lvgl.Timer.create ~period:press_ms (fun timer ->
-        Lvgl.Obj.remove_state button Lvgl.State.pressed;
-        Lvgl.Timer.pause timer)
-  in
-  Lvgl.Timer.pause release_timer;
-
-  let widgets = [| name; button; volume; counter; chooser; sound |] in
+  let column = make_column root in
+  let hint = App_ui.make_hint root form_hint in
   let group = Lvgl.Group.create () in
-  Lvgl.Group.set_wrap group true;
-  Array.iter (Lvgl.Group.add_obj group) widgets;
-  Lvgl.Group.focus_obj name;
+  Lvgl.Group.set_wrap group true (* X on the last widget goes back to the first *);
+  Lvgl.Group.delete_with group root;
+  (* The rows, top to bottom, one at a time: OCaml does not fix the order in
+     which a record's fields are evaluated. *)
+  let name = make_name_row column in
+  let hello, add_one = make_buttons_row column in
+  let volume, volume_value = make_volume_row column in
+  let minus, count, plus = make_count_row column in
+  let color = make_color_row column in
+  let sound, sound_value = make_sound_row column in
+  let like = make_like_row column in
   let form =
     {
       root;
       group;
-      bars;
-      labels;
-      widgets;
-      name;
-      button;
-      volume;
-      volume_value;
-      counter;
-      minus;
-      plus;
-      count_value;
-      chooser;
-      chooser_left;
-      chooser_right;
-      swatch;
-      sound;
-      sound_value;
+      previous_group = None;
       status;
       hint;
-      release_timer;
-      count = 0;
+      name;
+      hello;
+      add_one;
+      volume;
+      volume_value;
+      minus;
+      count;
+      plus;
+      color;
+      sound;
+      sound_value;
+      like;
     }
   in
   connect form;
-  Lvgl.Group.set_focus_cb group (fun _ -> refresh_focus form);
-  apply_accent form;
   App_ui.make_screen ~root
     ~title:(fun () -> "Widgets")
     ~handle_key:(handle_key form)
     ~on_show:(fun () -> on_show form)
-    ~on_hide ()
+    ~on_hide:(fun () -> on_hide form)
+    ()

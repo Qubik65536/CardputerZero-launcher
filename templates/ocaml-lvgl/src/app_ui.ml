@@ -1,8 +1,8 @@
 (* SPDX-FileCopyrightText: 2026 M5Stack Technology CO LTD
    SPDX-License-Identifier: MIT
 
-   The app's look and plumbing, shared by every screen: colors, key helpers,
-   label/panel helpers and the screen type. *)
+   The app's look and plumbing, shared by every screen: colors, the theme,
+   key helpers, label/panel helpers and the screen type. *)
 
 (* The language this template is written in, and GitHub's color for it. *)
 let language = "OCaml"
@@ -65,6 +65,15 @@ let make_panel parent ~x ~y ~width ~height color opa =
   Lvgl.Obj.remove_flag panel Lvgl.Flag.(clickable lor scrollable);
   panel
 
+(* Makes LVGL's default theme (dark, Montserrat 14) the app's theme, with
+   [primary] as its accent color. Widgets created afterwards take their look
+   from it; calling it again restyles the existing ones (the Widgets demo's
+   Color row). main.ml calls it before the first screen exists. *)
+let set_theme primary =
+  let display = Lvgl.Display.get_default () in
+  let secondary = Lvgl.Palette.(main blue) in
+  Lvgl.Display.set_theme display (Lvgl.Theme.default_init display ~primary ~secondary ~dark:true Lvgl.Font.montserrat_14)
+
 (* One line of key help, centered at the bottom of a screen. *)
 let make_hint parent text =
   let hint = make_label parent text Lvgl.Font.montserrat_14 muted_color in
@@ -97,6 +106,9 @@ let screen_root parent =
   in
   Lvgl.Obj.add_flag root Lvgl.Flag.hidden;
   root
+
+(* Whether the screen with this [root] is the one showing. *)
+let shown root = not (Lvgl.Obj.has_flag root Lvgl.Flag.hidden)
 
 let make_screen ~root ~title ~handle_key ?(on_show = ignore) ?(on_hide = ignore) ?frame () =
   let timer =

@@ -8,16 +8,15 @@
    is [Label.set_text], lv_obj_set_style_bg_color is [Obj.set_style_bg_color],
    cp0_app_quit is [App.quit].
 
-   - Widgets, groups, timers, fonts and events are abstract values ([obj],
-     [group], ...). They are C pointers stored as OCaml ints (see the top of
+   - Widgets, groups, input devices, timers, fonts, events, the display and
+     its theme are abstract values ([obj], [group], ...). They are C pointers stored as OCaml ints (see the top of
      lvgl_stubs.c), so the garbage collector never touches them; compare them
-     with [==].
+     with [==]. A C function that may return NULL returns an option here.
    - Colors are 0xRRGGBB ints. Coordinates and sizes are pixels.
    - Style setters take ?part and ?state (LVGL's selector, default: the main
      part in the default state), e.g.
        Obj.set_style_bg_color obj 0xFFFFFF ~part:Part.knob ~state:State.focused
-   - Callbacks are ordinary closures: [Obj.add_event_cb], [Group.set_focus_cb],
-     [Timer.create]. The C side keeps them alive (GC roots) for as long as
+   - Callbacks are ordinary closures: [Obj.add_event_cb], [Timer.create]. The C side keeps them alive (GC roots) for as long as
      LVGL can call them.
    - Everything runs on the LVGL thread: inside [App.run]'s setup and key
      callbacks, event callbacks and timers. There is no other thread.
@@ -38,6 +37,13 @@ type font [@@immediate]
 (* lv_group_t *: widgets that take keyboard focus in turn. *)
 type group [@@immediate]
 
+(* lv_indev_t *: an input device (keypad, mouse, ...). *)
+type indev [@@immediate]
+
+(* lv_display_t * and lv_theme_t * *)
+type display [@@immediate]
+type theme [@@immediate]
+
 (* lv_timer_t * *)
 type timer [@@immediate]
 
@@ -57,6 +63,12 @@ let guard callback argument =
     Printf.eprintf "Fatal error: exception %s\n" (Printexc.to_string error);
     Printexc.print_raw_backtrace stderr backtrace;
     exit 2
+
+(* Sizes (misc/lv_area.h): [pct 100] is LV_PCT(100), a percentage of the
+   parent; [size_content] (LV_SIZE_CONTENT) fits the children. *)
+external pct : int -> int = "ml_lv_pct"
+
+let size_content = 0x3FFFFFFF
 
 (* lv_align_t (misc/lv_area.h) *)
 module Align = struct
@@ -89,6 +101,7 @@ module Flag = struct
   let hidden = 0x01
   let clickable = 0x02
   let scrollable = 0x10
+  let scroll_on_focus = 0x400  (* scroll the widget into view when it gets the focus *)
 end
 
 (* lv_opa_t (misc/lv_color.h): 0 = transparent .. 255 = opaque. *)
@@ -104,20 +117,62 @@ module Text_align = struct
   let right = 3
 end
 
+(* lv_flex_flow_t and lv_flex_align_t (layouts/flex/lv_flex.h) *)
+module Flex_flow = struct
+  let row = 0
+  let column = 1
+end
+
+module Flex_align = struct
+  let start = 0
+  let center = 2
+end
+
+(* lv_key_t (core/lv_group.h): the keys LVGL's keypad input device sends to
+   the focused widget, besides the characters typed keys produce. (Linux key
+   codes, as [App.key] has them, are in [Keys] at the end of this file.) *)
+module Key = struct
+  let up = 17
+  let down = 18
+  let right = 19
+  let left = 20
+end
+
+(* lv_palette_t (misc/lv_palette.h) *)
+module Palette = struct
+  let blue = 5
+
+  (* The palette's main color, as 0xRRGGBB. *)
+  external main : int -> int = "ml_lv_palette_main"
+end
+
 (* lv_event_code_t (misc/lv_event.h) and reading an event. *)
 module Event = struct
   let all = 0
   let pressed = 1
+  let short_clicked = 4
+  let long_pressed_repeat = 9
   let clicked = 10
   let released = 11
   let key = 17
   let focused = 19
   let defocused = 20
   let value_changed = 35
+  let ready = 38
   let delete = 42
+
+  (* A flag for an event filter: [key lor preprocess] runs the callback before
+     the widget itself handles the key, so it can [stop_processing] it. *)
+  let preprocess = 0x8000
 
   external code : event -> int = "ml_lv_event_get_code"
   external target : event -> obj = "ml_lv_event_get_target"
+
+  (* The key of an Event.key event: a Key.* or the character typed. *)
+  external get_key : event -> int = "ml_lv_event_get_key"
+
+  (* No further callbacks (nor the widget itself) handle this event. *)
+  external stop_processing : event -> unit = "ml_lv_event_stop_processing"
 end
 
 module Font = struct
@@ -149,56 +204,50 @@ module Obj = struct
   external remove_flag : obj -> int -> unit = "ml_lv_obj_remove_flag"
   external has_flag : obj -> int -> bool = "ml_lv_obj_has_flag"
   external add_state : obj -> int -> unit = "ml_lv_obj_add_state"
-  external remove_state : obj -> int -> unit = "ml_lv_obj_remove_state"
   external has_state : obj -> int -> bool = "ml_lv_obj_has_state"
-  external set_state : obj -> int -> bool -> unit = "ml_lv_obj_set_state"
 
   (* Mark for redrawing, e.g. after changing a canvas's pixels. *)
   external invalidate : obj -> unit = "ml_lv_obj_invalidate"
+
+  (* Recompute how far the widget draws outside itself (outlines, shadows). *)
+  external refresh_ext_draw_size : obj -> unit = "ml_lv_obj_refresh_ext_draw_size"
+
+  (* Flex layout: the children in a row or a column (Flex_flow.row, ...). *)
+  external set_flex_flow : obj -> int -> unit = "ml_lv_obj_set_flex_flow"
+
+  (* Where the children go along the row (main), across it (cross) and where
+     the rows go (track): Flex_align.start, .center, ... *)
+  external set_flex_align : obj -> main:int -> cross:int -> track:int -> unit = "ml_lv_obj_set_flex_align"
+
+  (* Take this share of the free space along the parent's flex row or column. *)
+  external set_flex_grow : obj -> int -> unit = "ml_lv_obj_set_flex_grow"
   external add_event_cb_raw : obj -> int -> (event -> unit) -> unit = "ml_lv_obj_add_event_cb"
 
   (* Call [callback] for events with code [filter] (Event.clicked, ...; Event.all for every one). *)
   let add_event_cb obj filter callback = add_event_cb_raw obj filter (guard callback)
 
-  (* Send event [code] to [obj]'s callbacks, as LVGL does when a widget changes. *)
-  external send_event : obj -> int -> unit = "ml_lv_obj_send_event"
-
   (* Styles: lv_obj_set_style_<property>(obj, value, selector). *)
   external style_bg_color : obj -> int -> int -> unit = "ml_lv_obj_set_style_bg_color"
   external style_bg_opa : obj -> int -> int -> unit = "ml_lv_obj_set_style_bg_opa"
   external style_border_width : obj -> int -> int -> unit = "ml_lv_obj_set_style_border_width"
-  external style_border_color : obj -> int -> int -> unit = "ml_lv_obj_set_style_border_color"
   external style_text_color : obj -> int -> int -> unit = "ml_lv_obj_set_style_text_color"
-  external style_text_opa : obj -> int -> int -> unit = "ml_lv_obj_set_style_text_opa"
-  external style_text_align : obj -> int -> int -> unit = "ml_lv_obj_set_style_text_align"
   external style_text_font : obj -> font -> int -> unit = "ml_lv_obj_set_style_text_font"
   external style_pad_all : obj -> int -> int -> unit = "ml_lv_obj_set_style_pad_all"
-  external style_pad_hor : obj -> int -> int -> unit = "ml_lv_obj_set_style_pad_hor"
   external style_pad_ver : obj -> int -> int -> unit = "ml_lv_obj_set_style_pad_ver"
-  external style_pad_right : obj -> int -> int -> unit = "ml_lv_obj_set_style_pad_right"
-  external style_anim_duration : obj -> int -> int -> unit = "ml_lv_obj_set_style_anim_duration"
-  external style_outline_color : obj -> int -> int -> unit = "ml_lv_obj_set_style_outline_color"
-  external style_outline_width : obj -> int -> int -> unit = "ml_lv_obj_set_style_outline_width"
-  external style_outline_pad : obj -> int -> int -> unit = "ml_lv_obj_set_style_outline_pad"
+  external style_pad_row : obj -> int -> int -> unit = "ml_lv_obj_set_style_pad_row"
+  external style_pad_column : obj -> int -> int -> unit = "ml_lv_obj_set_style_pad_column"
 
   (* The selector argument as optional ?part and ?state. *)
   let styled set ?(part = Part.main) ?(state = State.default) obj value = set obj value (part lor state)
   let set_style_bg_color = styled style_bg_color
   let set_style_bg_opa = styled style_bg_opa
   let set_style_border_width = styled style_border_width
-  let set_style_border_color = styled style_border_color
   let set_style_text_color = styled style_text_color
-  let set_style_text_opa = styled style_text_opa
-  let set_style_text_align = styled style_text_align
   let set_style_text_font = styled style_text_font
   let set_style_pad_all = styled style_pad_all
-  let set_style_pad_hor = styled style_pad_hor
   let set_style_pad_ver = styled style_pad_ver
-  let set_style_pad_right = styled style_pad_right
-  let set_style_anim_duration = styled style_anim_duration
-  let set_style_outline_color = styled style_outline_color
-  let set_style_outline_width = styled style_outline_width
-  let set_style_outline_pad = styled style_outline_pad
+  let set_style_pad_row = styled style_pad_row
+  let set_style_pad_column = styled style_pad_column
 end
 
 module Label = struct
@@ -232,12 +281,6 @@ module Textarea = struct
   external set_placeholder_text : obj -> string -> unit = "ml_lv_textarea_set_placeholder_text"
   external set_max_length : obj -> int -> unit = "ml_lv_textarea_set_max_length"
   external get_text : obj -> string = "ml_lv_textarea_get_text"
-
-  (* Insert at the cursor. *)
-  external add_text : obj -> string -> unit = "ml_lv_textarea_add_text"
-
-  (* Delete the character before the cursor. *)
-  external delete_char : obj -> unit = "ml_lv_textarea_delete_char"
 end
 
 module Slider = struct
@@ -247,16 +290,34 @@ module Slider = struct
   external get_value : obj -> int = "ml_lv_slider_get_value"
 end
 
-module Roller = struct
-  external create : obj -> obj = "ml_lv_roller_create"
-  external set_options_raw : obj -> string -> bool -> unit = "ml_lv_roller_set_options"
+(* A number with -/+ steps; a text area underneath. *)
+module Spinbox = struct
+  external create : obj -> obj = "ml_lv_spinbox_create"
+  external set_range : obj -> min:int -> max:int -> unit = "ml_lv_spinbox_set_range"
 
-  (* The choices, top to bottom; ~infinite:true wraps around (LV_ROLLER_MODE_INFINITE). *)
-  let set_options ?(infinite = false) roller options = set_options_raw roller (String.concat "\n" options) infinite
+  (* [digits] digits shown, the decimal point after [separator] of them (0: none). *)
+  external set_digit_format : obj -> digits:int -> separator:int -> unit = "ml_lv_spinbox_set_digit_format"
+  external set_value : obj -> int -> unit = "ml_lv_spinbox_set_value"
+  external get_value : obj -> int = "ml_lv_spinbox_get_value"
+  external increment : obj -> unit = "ml_lv_spinbox_increment"
+  external decrement : obj -> unit = "ml_lv_spinbox_decrement"
+end
 
-  external set_visible_row_count : obj -> int -> unit = "ml_lv_roller_set_visible_row_count"
-  external set_selected : obj -> int -> anim:bool -> unit = "ml_lv_roller_set_selected"
-  external get_selected : obj -> int = "ml_lv_roller_get_selected"
+(* A button that opens a list of options. *)
+module Dropdown = struct
+  external create : obj -> obj = "ml_lv_dropdown_create"
+  external set_options_raw : obj -> string -> unit = "ml_lv_dropdown_set_options"
+
+  (* The options, top to bottom. *)
+  let set_options dropdown options = set_options_raw dropdown (String.concat "\n" options)
+
+  external set_selected : obj -> int -> unit = "ml_lv_dropdown_set_selected"
+  external get_selected : obj -> int = "ml_lv_dropdown_get_selected"
+
+  (* The selected option's text. *)
+  external get_selected_str : obj -> string = "ml_lv_dropdown_get_selected_str"
+  external is_open : obj -> bool = "ml_lv_dropdown_is_open"
+  external close : obj -> unit = "ml_lv_dropdown_close"
 end
 
 module Switch = struct
@@ -264,22 +325,74 @@ module Switch = struct
   external create : obj -> obj = "ml_lv_switch_create"
 end
 
+module Checkbox = struct
+  (* Ticked is the State.checked state. *)
+  external create : obj -> obj = "ml_lv_checkbox_create"
+  external set_text : obj -> string -> unit = "ml_lv_checkbox_set_text"
+end
+
 (* Keyboard focus: one widget of the group is focused (State.focused). *)
 module Group = struct
   external create : unit -> group = "ml_lv_group_create"
   external delete : group -> unit = "ml_lv_group_delete"
-  external set_focus_cb_raw : group -> (group -> unit) -> unit = "ml_lv_group_set_focus_cb"
 
-  (* Called whenever the focus moves to another widget. *)
-  let set_focus_cb group callback = set_focus_cb_raw group (guard callback)
+  (* Delete [group] when [obj] gets Event.delete, before [obj]'s children are
+     deleted: deleting the focused widget then moves no focus. (In C: app code
+     no longer runs once the app is being torn down, see lvgl_stubs.c.) *)
+  external delete_with : group -> obj -> unit = "ml_lv_group_delete_with"
 
   (* Whether focus_next on the last widget goes back to the first. *)
   external set_wrap : group -> bool -> unit = "ml_lv_group_set_wrap"
+
+  (* The widget's group (if any) is replaced by [group]. *)
   external add_obj : group -> obj -> unit = "ml_lv_group_add_obj"
+
+  (* Take the widget out of its group. *)
+  external remove_obj : obj -> unit = "ml_lv_group_remove_obj"
   external focus_obj : obj -> unit = "ml_lv_group_focus_obj"
   external focus_next : group -> unit = "ml_lv_group_focus_next"
   external focus_prev : group -> unit = "ml_lv_group_focus_prev"
-  external get_focused : group -> obj = "ml_lv_group_get_focused"
+  external get_focused : group -> obj option = "ml_lv_group_get_focused"
+end
+
+(* Input devices (indev/lv_indev.h). A keypad device sends keys to the focused
+   widget of its group. *)
+module Indev = struct
+  (* lv_indev_type_t *)
+  module Type = struct
+    let keypad = 2
+  end
+
+  (* The device after [indev] (the first one after None). *)
+  external get_next : indev option -> indev option = "ml_lv_indev_get_next"
+
+  let all () =
+    let rec from previous =
+      match get_next previous with Some indev -> indev :: from (Some indev) | None -> []
+    in
+    from None
+
+  (* The device whose input LVGL is handling right now (inside an event callback). *)
+  external active : unit -> indev option = "ml_lv_indev_active"
+  external get_type : indev -> int = "ml_lv_indev_get_type"
+  external get_group : indev -> group option = "ml_lv_indev_get_group"
+  external set_group : indev -> group option -> unit = "ml_lv_indev_set_group"
+
+  (* Ignore the key (or touch) that is down now until it is released. *)
+  external wait_release : indev -> unit = "ml_lv_indev_wait_release"
+end
+
+module Display = struct
+  external get_default : unit -> display = "ml_lv_display_get_default"
+  external set_theme : display -> theme -> unit = "ml_lv_display_set_theme"
+end
+
+module Theme = struct
+  (* LVGL's default theme for [display] with these colors (0xRRGGBB) and font.
+     Calling it again updates the same theme: every widget that uses it
+     restyles. *)
+  external default_init : display -> primary:int -> secondary:int -> dark:bool -> font -> theme
+    = "ml_lv_theme_default_init"
 end
 
 module Timer = struct
@@ -291,9 +404,6 @@ module Timer = struct
   external delete : timer -> unit = "ml_lv_timer_delete"
   external pause : timer -> unit = "ml_lv_timer_pause"
   external resume : timer -> unit = "ml_lv_timer_resume"
-
-  (* Start the current period over: the next call is [period] ms from now. *)
-  external reset : timer -> unit = "ml_lv_timer_reset"
 end
 
 (* cp0_app.h: the app's page (top bar + 320x150 content area), keys, and the event loop. *)
