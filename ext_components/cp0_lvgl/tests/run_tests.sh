@@ -276,6 +276,13 @@ fi
     "$root/tests/test_sdl_external_app_runner.cpp" -o "$binary"
 "$binary"
 
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror \
+    -I"$root/include" -I"$root/src" \
+    "$esc_state_object" \
+    "$root/src/sdl/sdl_external_app_runner.cpp" \
+    "$root/tests/test_sdl_external_app_runner_hooks.cpp" -o "$binary"
+"$binary"
+
 "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -pthread \
     -I"$root/include" -I"$root/src" \
     "$root/tests/test_sdl_fbsim_keymap.c" -o "$binary"
