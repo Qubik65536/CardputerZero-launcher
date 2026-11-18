@@ -1,0 +1,7 @@
+; SPDX-FileCopyrightText: 2026 M5Stack Technology CO LTD
+; SPDX-License-Identifier: MIT
+; `dune test` runs test_calc.exe.
+
+(test
+ (name test_calc)
+ (libraries calc))

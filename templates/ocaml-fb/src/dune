@@ -1,6 +1,26 @@
 ; SPDX-FileCopyrightText: 2026 M5Stack Technology CO LTD
 ; SPDX-License-Identifier: MIT
 ; Only the OCaml standard library and unix: the framebuffer and keyboard are files.
+
+; The calc language is a library of its own so test/test_calc.ml can use it.
+(library
+ (name calc)
+ (modules calc))
+
+; embed.ml is the build-time generator below, not part of the app.
 (executable
  (name main)
- (libraries unix))
+ (modules :standard \ calc embed)
+ (libraries calc unix))
+
+; Embed the wallpaper in the binary: embed.ml (run by the ocaml toplevel)
+; turns wallpaper.rgb565 into wallpaper.ml, `let data = "..."`.
+(rule
+ (target wallpaper.ml)
+ (deps
+  (:script embed.ml)
+  (:image wallpaper.rgb565))
+ (action
+  (with-stdout-to
+   %{target}
+   (run ocaml %{script} %{image}))))

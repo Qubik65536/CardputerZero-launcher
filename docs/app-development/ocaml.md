@@ -38,42 +38,52 @@ Debian trixie.
 
 ## Project tour
 
+The app is described in [framebuffer apps](framebuffer-apps.md#the-template-app):
+a home screen and three demos.
+
 | File | Contents |
 | --- | --- |
-| `src/main.ml` | `app` (your state), `handle_key`, `draw`, and the loop |
-| `src/display.ml` | `open_display ()`, `width`, `height`, `clear`, `fill_rect d x y w h color`, `draw_text d x y text color scale`, `text_width`, `present`, `close`; `rgb r g b`, `black`, `white` |
-| `src/input.ml` | `open_keyboard ()`, `poll : t -> event option`, `close`; `event = { code; state }`, `is_down`; `Keys.*`; `direction code : direction option` |
-| `src/font.ml` | The 8x8 glyph table |
-| `src/dune` | Executable `main`, libraries `unix` |
+| `src/main.ml` | `app` (the current `screen` and each screen's state), `handle_key`, `tick`, `draw`, and the loop |
+| `src/ui.ml` | `language`, `language_color` and the palette; `draw_header`, `draw_hint`, `draw_shadowed_text`; `type action` |
+| `src/home.ml` | The home screen: wallpaper (`Wallpaper.data`), greeting, menu (`demos`) |
+| `src/colors.ml` | RGB triangle (barycentric shading) and HSV wheel |
+| `src/motion.ml` | The ball: momentum, bounces, trail, sparks |
+| `src/repl.ml` | The terminal-style screen: scrollback, input line, history, `help`/`vars`/`clear` |
+| `src/calc.ml` | The calculator language (`Calc.run calculator line : (string, string) result`), a library of its own so the tests can use it |
+| `src/display.ml` | `open_display ()`, `width`, `height`, `clear`, `fill_rect d x y w h color`, `set_pixel`, `blend_pixel`, `shade_rect`, `fill_circle`, `draw_image d x y image`, `draw_text d x y text color scale`, `text_width`, `present`, `close`; `rgb r g b`, `blend`, `black`, `white`, `char_width`, `char_height` |
+| `src/input.ml` | `open_keyboard ()`, `poll : t -> event option`, `close`; `event = { code; state }`, `is_down`; `Keys.*`; `direction code : direction option`; `create_typist ()`, `char_for typist event : char option` |
+| `src/font.ml` | The 8x16 glyph table |
+| `src/wallpaper.rgb565`, `src/embed.ml` | The home screen's 320x170 picture, and the script that embeds it (see Images) |
+| `src/dune` | Library `calc`, executable `main` (libraries `unix`), the wallpaper rule |
+| `test/` | `test_calc.ml`, run by `dune test` |
 | `device/` | Dockerfile and build script for the aarch64 binary |
 
 ## Common tasks
 
-**A new screen or mode.** Add `mutable screen : [ `Menu | `Game | `Game_over ]`
-to `app`, and `match` on it in `handle_key` and `draw`.
+**Start from one demo.** Delete the screens you don't want: remove the
+module, its `screen` case and field in `main.ml`, its entry in
+`demo_screens` and in `Home.demos`. Or make one demo the whole app by starting
+on its screen.
 
-**Timed updates.** `Unix.gettimeofday ()` each frame; pass the difference to an
-`update` function and redraw every frame.
+**A new screen.** Copy the shape of `motion.ml`: a state record with
+`handle_key`, `draw` and, if it animates, `tick`. Add a `screen` case, the
+`match` arms in `main.ml`, and entries in `Home.demos` and `demo_screens`.
 
-**Images.** Convert with `scripts/png_to_rgb565.py art/player.png assets/player.rgb565 --alpha`,
-install the file next to your binary (put it under `APPLaunch/share/` so the
-package installs it to `/usr/share/APPLaunch/share/...`), and add to `display.ml`:
+**Timed updates.** `tick` runs every frame; the demos advance by one frame per
+tick. For speed that doesn't depend on the frame rate, read
+`Unix.gettimeofday ()` each frame and pass the difference to your update.
 
-```ocaml
-(* Draw an image made by scripts/png_to_rgb565.py (with or without --alpha). *)
-let draw_image display x y image =
-  let width = Bytes.get_uint16_le image 0 and height = Bytes.get_uint16_le image 2 in
-  let has_alpha = Bytes.length image >= 4 + (width * height * 3) in
-  for row = 0 to height - 1 do
-    for column = 0 to width - 1 do
-      let index = (row * width) + column in
-      if not (has_alpha && Bytes.get_uint8 image (4 + (width * height * 2) + index) < 128) then
-        fill_rect display (x + column) (y + row) 1 1 (Bytes.get_uint16_le image (4 + (index * 2)))
-    done
-  done
+**Text input.** Pass every event to `Input.char_for` (see `main.ml`), then use
+the character in the screen that wants text, as `Repl.handle_key` does.
 
-let load_image path = In_channel.with_open_bin path In_channel.input_all |> Bytes.of_string
-```
+**Images.** OCaml has no `include_bytes`, so `src/dune` has a rule that runs
+`src/embed.ml` with the `ocaml` toplevel to turn `wallpaper.rgb565` into the
+module `Wallpaper` (`let data = "..."`). For another picture, convert it with
+`scripts/png_to_rgb565.py art/player.png src/player.rgb565 --alpha`, copy the
+rule with `player.ml` / `player.rgb565`, and draw it with
+`Display.draw_image display 10 30 Player.data`. A new wallpaper:
+`python3 ../../scripts/png_to_rgb565.py my-picture.png src/wallpaper.rgb565`
+with a 320x170 PNG.
 
 **Saving data.** `Sys.getenv "HOME"` is `/home/pi`; write under
 `~/.local/share/<app>/`.
@@ -85,8 +95,7 @@ Debian packages (`libfoo-ocaml-dev`), or add opam to the image.
 ## Testing
 
 ```bash
+dune test                                          # test/test_calc.ml
 dune build && python3 ../../scripts/fbsim/headless.py \
-    --keys "c c enter esc" --png /tmp/shot.png --expect-exit 0 -- ./_build/default/src/main.exe
+    --keys "3 6 shift+8 7 enter" --png /tmp/shot.png -- ./_build/default/src/main.exe
 ```
-
-Add `(test ...)` stanzas to `src/dune` for unit tests (`dune test`).

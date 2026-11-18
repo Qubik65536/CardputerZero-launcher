@@ -1,64 +1,99 @@
 (* SPDX-FileCopyrightText: 2026 M5Stack Technology CO LTD
    SPDX-License-Identifier: MIT
 
-   Hello Cardputer: a minimal CardputerZero app in OCaml.
+   Hello Cardputer: a CardputerZero app in OCaml.
 
-   Move the square with F/X/Z/C (or the arrow keys), press ENTER to change its
-   color, ESC to quit. Start editing in [handle_key] and [draw]. *)
+   The home screen greets you and opens three demos: color rendering
+   (colors.ml), an interactive animation (motion.ml) and a terminal-style REPL
+   (repl.ml, running the little language in calc.ml). TAB moves to the next
+   demo, ESC goes back home, ESC at home quits. Keep what you need and delete
+   the rest. *)
 
 let frame_time = 0.016 (* ~60 frames per second *)
-let background = Display.rgb 16 20 24
-let title_bar = Display.rgb 30 36 44
-let muted = Display.rgb 150 160 170
-let colors = [| Display.rgb 79 195 247; Display.rgb 129 199 132; Display.rgb 255 183 77; Display.rgb 240 98 146 |]
-let square = 24
 
-type app = { mutable x : int; mutable y : int; mutable color : int; mutable running : bool }
+(* Which screen is showing. The demos are in Home.demos order. *)
+type screen = Home_screen | Colors_screen | Motion_screen | Repl_screen
 
-let create display =
-  { x = (Display.width display - square) / 2; y = (Display.height display - square) / 2; color = 0; running = true }
+let demo_screens = [| Colors_screen; Motion_screen; Repl_screen |]
 
-let handle_key app display (event : Input.event) =
-  if Input.is_down event then begin
-    let step = 6 in
-    (match Input.direction event.code with
-    | Some Left -> app.x <- app.x - step
-    | Some Right -> app.x <- app.x + step
-    | Some Up -> app.y <- app.y - step
-    | Some Down -> app.y <- app.y + step
-    | None ->
-        if event.code = Input.Keys.enter || event.code = Input.Keys.space then
-          app.color <- (app.color + 1) mod Array.length colors
-        (* Quit on a short ESC press. (Holding ESC for 3 s makes the launcher kill the app.) *)
-        else if event.code = Input.Keys.esc then app.running <- false);
-    app.x <- max 0 (min app.x (Display.width display - square));
-    app.y <- max 20 (min app.y (Display.height display - square - 14))
-  end
+type app = {
+  mutable screen : screen;
+  home : Home.t;
+  colors : Colors.t;
+  motion : Motion.t;
+  repl : Repl.t;
+  mutable running : bool;
+}
+
+let create () =
+  {
+    screen = Home_screen;
+    home = Home.create ();
+    colors = Colors.create ();
+    motion = Motion.create ();
+    repl = Repl.create ();
+    running = true;
+  }
+
+let apply app (action : Ui.action) =
+  match action with
+  | Stay -> ()
+  | Home -> app.screen <- Home_screen
+  | Open index -> app.screen <- demo_screens.(index)
+  | Next ->
+      let rec position index =
+        if index >= Array.length demo_screens then 0 else if demo_screens.(index) = app.screen then index else position (index + 1)
+      in
+      app.screen <- demo_screens.((position 0 + 1) mod Array.length demo_screens)
+  | Quit -> app.running <- false
+
+let handle_key app event typed =
+  let action =
+    match app.screen with
+    | Home_screen -> Home.handle_key app.home event
+    | Colors_screen -> Colors.handle_key app.colors event
+    | Motion_screen -> Motion.handle_key app.motion event
+    | Repl_screen -> Repl.handle_key app.repl event typed
+  in
+  apply app action
+
+(* Advance animations by one frame. Returns true if the screen needs redrawing. *)
+let tick app =
+  match app.screen with
+  | Colors_screen ->
+      Colors.tick app.colors;
+      Colors.animated app.colors
+  | Motion_screen ->
+      Motion.tick app.motion;
+      true
+  | Home_screen | Repl_screen -> false
 
 let draw app display =
-  let width = Display.width display and height = Display.height display in
-  Display.clear display background;
-  Display.fill_rect display 0 0 width 18 title_bar;
-  Display.draw_text display 6 5 "Hello Cardputer" Display.white 1;
-  Display.fill_rect display app.x app.y square square colors.(app.color);
-  let hint = "F/X/Z/C move  ENTER color  ESC quit" in
-  Display.draw_text display ((width - Display.text_width hint 1) / 2) (height - 11) hint muted 1
+  match app.screen with
+  | Home_screen -> Home.draw app.home display
+  | Colors_screen -> Colors.draw app.colors display
+  | Motion_screen -> Motion.draw app.motion display
+  | Repl_screen -> Repl.draw app.repl display
 
-let rec drain_keys app display keyboard dirty =
+(* Handle every pending key event. Returns true if there were any. *)
+let rec drain_keys app keyboard typist dirty =
   match Input.poll keyboard with
   | Some event ->
-      handle_key app display event;
-      drain_keys app display keyboard true
+      let typed = Input.char_for typist event in
+      (* every event, so Shift is tracked *)
+      handle_key app event typed;
+      drain_keys app keyboard typist true
   | None -> dirty
 
-let () =
+let run () =
   let display = Display.open_display () in
   let keyboard = Input.open_keyboard () in
-  let app = create display in
+  let typist = Input.create_typist () in
+  let app = create () in
   let dirty = ref true in
   while app.running do
-    dirty := drain_keys app display keyboard !dirty;
-    if !dirty then begin
+    dirty := drain_keys app keyboard typist !dirty;
+    if tick app || !dirty then begin
       draw app display;
       Display.present display;
       dirty := false
@@ -67,3 +102,15 @@ let () =
   done;
   Input.close keyboard;
   Display.close display
+
+let () =
+  try run () with
+  | Unix.Unix_error (error, _, "") ->
+      prerr_endline ("hello-cardputer: " ^ Unix.error_message error);
+      exit 1
+  | Unix.Unix_error (error, _, path) ->
+      Printf.eprintf "hello-cardputer: %s: %s\n" path (Unix.error_message error);
+      exit 1
+  | Failure message ->
+      prerr_endline ("hello-cardputer: " ^ message);
+      exit 1

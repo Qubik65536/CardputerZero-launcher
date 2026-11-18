@@ -17,6 +17,11 @@ module Keys = struct
   let esc = 1
   let backspace = 14
   let tab = 15
+  let leftshift = 42
+  let rightshift = 54
+  let digit_1 = 2
+  let digit_2 = 3
+  let digit_3 = 4
   let enter = 28
   let space = 57
   let up = 103
@@ -58,6 +63,67 @@ let parse record =
   let value = Int32.to_int (Bytes.get_int32_le record 20) in
   if kind <> ev_key then None
   else Some { code; state = (match value with 0 -> Released | 1 -> Pressed | _ -> Repeated) }
+
+(* US desktop keyboard rows: key code of the first key, unshifted and shifted characters. *)
+let desktop_rows =
+  [
+    (2, "1234567890-=", "!@#$%^&*()_+");
+    (16, "qwertyuiop[]", "QWERTYUIOP{}");
+    (30, "asdfghjkl;'`", "ASDFGHJKL:\"~");
+    (43, "\\zxcvbnm,./", "|ZXCVBNM<>?");
+  ]
+
+(* The CardputerZero's symbol layer (SYM + key) sends these codes; the table is the
+   launcher's default keymap (ext_components/cp0_lvgl/src/cp0/cp0_keyboard_keymap.c). *)
+let device_symbols =
+  [
+    (26, '!'); (27, '@'); (39, '#'); (40, '$'); (41, '%'); (43, '^'); (51, '&'); (52, '*');
+    (53, '('); (94, ')'); (55, '~'); (69, '`'); (70, '_'); (71, '-'); (72, '+'); (73, '=');
+    (74, '['); (75, ']'); (76, '{'); (77, '}'); (79, ';'); (80, ':'); (81, '\''); (82, '"');
+    (83, '<'); (85, '>'); (86, '\\'); (89, '|'); (90, ','); (91, '.'); (92, '/'); (93, '?');
+  ]
+
+let desktop_char code shift =
+  if code = Keys.space then Some ' '
+  else
+    List.find_map
+      (fun (first, plain, shifted) ->
+        let index = code - first and row = if shift then shifted else plain in
+        if index >= 0 && index < String.length row then Some row.[index] else None)
+      desktop_rows
+
+let device_char code shift =
+  match List.assoc_opt code device_symbols with
+  | Some symbol -> Some symbol
+  | None -> (
+      (* Letters, digits and space are where a PC keyboard has them; Shift makes capitals. *)
+      match desktop_char code false with
+      | Some ('a' .. 'z' as letter) -> Some (if shift then Char.uppercase_ascii letter else letter)
+      | Some (('0' .. '9' | ' ') as character) -> Some character
+      | _ -> None)
+
+(* Which characters keys type: the CardputerZero's own keyboard, or a US desktop
+   keyboard (fbsim and the emulator, which set CARDPUTER_INPUT). *)
+type layout = Device | Desktop
+
+(* Turns key events into typed characters, keeping track of Shift. *)
+type typist = { layout : layout; mutable shift : bool }
+
+let create_typist () =
+  { layout = (if Sys.getenv_opt "CARDPUTER_INPUT" = None then Device else Desktop); shift = false }
+
+(* The character a key press types, if any. Feed it every event, releases
+   included, so it sees Shift go up and down. *)
+let char_for typist event =
+  if event.code = Keys.leftshift || event.code = Keys.rightshift then begin
+    typist.shift <- is_down event;
+    None
+  end
+  else if not (is_down event) then None
+  else
+    match typist.layout with
+    | Device -> device_char event.code typist.shift
+    | Desktop -> desktop_char event.code typist.shift
 
 (* The built-in keyboard's event device. APPLaunch exports its path to the apps
    it starts; the fixed by-path name is the same device when run another way. *)

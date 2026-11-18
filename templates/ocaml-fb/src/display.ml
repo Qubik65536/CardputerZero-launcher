@@ -122,6 +122,18 @@ let open_display () =
 let close display = Unix.close display.fd
 let clear display color = Array.fill display.pixels 0 (Array.length display.pixels) color
 
+(* Character cell of the built-in font at scale 1, in pixels. *)
+let char_width = 8
+let char_height = Font.height
+
+let mix_channel under over alpha shift mask =
+  let below = (under lsr shift) land mask and above = (over lsr shift) land mask in
+  (((below * (255 - alpha)) + (above * alpha) + 127) / 255) lsl shift
+
+(* Mix two RGB565 colors: [alpha] 0 = all [under], 255 = all [over]. *)
+let blend under over alpha =
+  mix_channel under over alpha 11 0x1F lor mix_channel under over alpha 5 0x3F lor mix_channel under over alpha 0 0x1F
+
 (* Fill a rectangle; parts outside the screen are clipped. *)
 let fill_rect display x y w h color =
   let clamp value limit = max 0 (min value limit) in
@@ -132,27 +144,71 @@ let fill_rect display x y w h color =
       Array.fill display.pixels ((row * display.width) + left) (right - left) color
     done
 
-(* Draw ASCII text with the built-in 8x8 font, enlarged [scale] times
-   (scale 1 = 8px tall, 2 = 16px). *)
+let inside display x y = x >= 0 && y >= 0 && x < display.width && y < display.height
+
+(* Set one pixel; coordinates outside the screen are ignored. *)
+let set_pixel display x y color = if inside display x y then display.pixels.((y * display.width) + x) <- color
+
+(* Mix [color] over the pixel at (x, y); [alpha] 0 = invisible, 255 = opaque. *)
+let blend_pixel display x y color alpha =
+  if inside display x y then begin
+    let index = (y * display.width) + x in
+    display.pixels.(index) <- blend display.pixels.(index) color alpha
+  end
+
+(* Darken a rectangle, e.g. behind text drawn over a picture. [alpha] 255 = black. *)
+let shade_rect display x y w h alpha =
+  for row = y to y + h - 1 do
+    for column = x to x + w - 1 do
+      blend_pixel display column row black alpha
+    done
+  done
+
+(* Fill a circle centered on (cx, cy), mixed in with [alpha] (255 = opaque). *)
+let fill_circle display cx cy radius color alpha =
+  for dy = -radius to radius do
+    for dx = -radius to radius do
+      if (dx * dx) + (dy * dy) <= (radius * radius) + radius then blend_pixel display (cx + dx) (cy + dy) color alpha
+    done
+  done
+
+(* Draw an image made by scripts/png_to_rgb565.py (with or without --alpha),
+   e.g. [draw_image display 0 0 Wallpaper.data] (src/dune embeds the file). *)
+let draw_image display x y image =
+  let width = String.get_uint16_le image 0 and height = String.get_uint16_le image 2 in
+  let alpha_start = 4 + (width * height * 2) in
+  let has_alpha = String.length image - alpha_start >= width * height in
+  for row = 0 to height - 1 do
+    for column = 0 to width - 1 do
+      let index = (row * width) + column in
+      let color = String.get_uint16_le image (4 + (index * 2)) in
+      let opacity = if has_alpha then Char.code image.[alpha_start + index] else 255 in
+      blend_pixel display (x + column) (y + row) color opacity
+    done
+  done
+
+(* Draw ASCII text with the built-in 8x16 font, enlarged [scale] times
+   (scale 1 = 8x16 pixels per character, 2 = 16x32). *)
 let draw_text display x y text color scale =
+  let glyph_count = String.length Font.glyphs / Font.height in
   String.iteri
     (fun index char ->
-      let code = Char.code char in
-      let glyph =
-        if code >= Font.first && code - Font.first < Array.length Font.glyphs then Font.glyphs.(code - Font.first)
-        else Font.glyphs.(Char.code '?' - Font.first)
-      in
-      Array.iteri
-        (fun row bits ->
-          for column = 0 to 7 do
-            if bits land (0x80 lsr column) <> 0 then
-              fill_rect display (x + (((index * 8) + column) * scale)) (y + (row * scale)) scale scale color
-          done)
-        glyph)
+      let glyph = Char.code char - Font.first in
+      let glyph = if glyph >= 0 && glyph < glyph_count then glyph else Char.code '?' - Font.first in
+      for row = 0 to Font.height - 1 do
+        let bits = Char.code Font.glyphs.[(glyph * Font.height) + row] in
+        for column = 0 to 7 do
+          if bits land (0x80 lsr column) <> 0 then
+            fill_rect display
+              (x + (((index * char_width) + column) * scale))
+              (y + (row * scale))
+              scale scale color
+        done
+      done)
     text
 
 (* Width in pixels that [draw_text] would use, e.g. for centering. *)
-let text_width text scale = String.length text * 8 * scale
+let text_width text scale = String.length text * char_width * scale
 
 (* Expand RGB565 to XRGB8888, for panels that report a 32 bpp framebuffer. *)
 let rgb565_to_xrgb8888 pixel =
