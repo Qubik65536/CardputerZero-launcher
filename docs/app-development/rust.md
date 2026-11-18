@@ -28,7 +28,7 @@ a binary of roughly 400 KB.
 ## Project tour
 
 The app is described in [framebuffer apps](framebuffer-apps.md#the-template-app):
-a home screen and three demos.
+a home screen and four demos.
 
 | File | Contents |
 | --- | --- |
