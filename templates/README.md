@@ -8,9 +8,11 @@ device. Do not edit them in place: copy one with the scaffolder, which also
 renames everything to your app's name.
 
 All four are the same app: a home screen that says "Hello, *Language*!" in
-the language's GitHub color over a wallpaper, and three demos to start from:
+the language's GitHub color over a wallpaper, and four demos to start from:
 **Colors** (pixel-by-pixel color rendering), **Motion** (an animated ball you
-steer) and **REPL** (a terminal-style calculator language). See
+steer, with live physics numbers), **REPL** (a terminal-style calculator
+language) and **Widgets** (a form with a text field, button, slider, counter,
+chooser and switch). See
 [the template app](../docs/app-development/framebuffer-apps.md#the-template-app).
 
 ```bash

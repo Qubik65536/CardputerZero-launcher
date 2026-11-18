@@ -14,10 +14,11 @@ app, so you can compare languages line by line:
 
 | Screen | What it shows | Keys |
 | --- | --- | --- |
-| **Home** | The wallpaper, "Hello, *Language*!" in GitHub's color for the language, and a menu | F/X choose, ENTER or 1/2/3 open, ESC quits |
+| **Home** | The wallpaper, "Hello, *Language*!" in GitHub's color for the language, and a menu | F/X choose, ENTER or 1-4 open, ESC quits |
 | **Colors** | A spinning RGB triangle and an HSV color wheel, computed pixel by pixel | Z/C turn, SPACE pause, ENTER switch |
-| **Motion** | A glowing ball with momentum, a trail and sparks when it bounces | F/X/Z/C push, ENTER color, SPACE stop |
+| **Motion** | A glowing ball with momentum, a trail and sparks when it bounces, plus live physics: speed, direction, velocity, kinetic energy, wall hits, a velocity arrow and a speed graph | F/X/Z/C push, ENTER color, SPACE stop |
 | **REPL** | A terminal-style calculator: `x = 6 * 7`, `ans`, `abs` `min` `max`, `help`, `vars`, `clear` | type, ENTER runs, UP/DOWN history |
+| **Widgets** | A form: text field, button, slider, counter, chooser (which recolors the form) and switch, with a status line | F/X move, Z/C change, ENTER press; in the text field type, ENTER moves on |
 
 TAB jumps to the next demo and ESC goes back home. The code is split the same
 way in every language:
@@ -26,7 +27,7 @@ way in every language:
 | --- | --- |
 | `main` | Which screen shows, key dispatch, the main loop |
 | `ui` | The language name and color, the palette, header and hint drawing, the `Action` a screen returns (stay, home, next, open, quit) |
-| `home`, `colors`, `motion`, `repl` | One screen each: state, `handle_key`, `draw` (and `tick` for animation) |
+| `home`, `colors`, `motion`, `repl`, `widgets` | One screen each: state, `handle_key`, `draw` (and `tick` for animation) |
 | `calc` | The REPL's language: tokenizer, recursive-descent parser, evaluator. No screen code, with unit tests |
 | `display`, `input`, `font` | The framebuffer canvas, the keyboard, the 8x16 font |
 
@@ -42,8 +43,8 @@ a new module with the same three functions.
 | **Keyboard**: read 24-byte `input_event` records | `$LV_LINUX_KEYBOARD_DEVICE` | FIFO named by `CARDPUTER_INPUT` |
 
 Each template has a `display` module (an in-memory RGB565 canvas with `clear`,
-`fill_rect`, `fill_circle`, `blend`/`shade_rect`, `draw_image`, `draw_text`
-and `present`) and an `input` module (non-blocking `poll` returning key
+`fill_rect`, `stroke_rect`, `draw_line`, `fill_circle`, `blend`/`shade_rect`,
+`draw_image`, `draw_text` and `present`) and an `input` module (non-blocking `poll` returning key
 events, `direction()` for F/X/Z/C and arrows, and a `Typist` that turns key
 events into typed characters). `main` runs a loop that handles keys, redraws
 when something changed or moves, and sleeps ~16 ms.
