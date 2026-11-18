@@ -3,8 +3,11 @@
 
 
 
-CONFIG_TOOLCHAIN_PATH="/opt/homebrew/bin"
-CONFIG_TOOLCHAIN_PREFIX="aarch64-linux-gnu-"
+# Native macOS SDL2 simulator build (Apple clang + Homebrew SDL2/FreeType).
+# brew install sdl2 freetype pkg-config
+# The previous aarch64-linux-gnu- prefix produced Linux objects with no sysroot,
+# which cannot run on macOS; use mac_cross_cp0_config_defaults.mk for the device.
+CONFIG_TOOLCHAIN_FLAGS="-std=gnu++17"
 
 
 

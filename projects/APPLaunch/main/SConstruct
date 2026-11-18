@@ -33,7 +33,11 @@ LDFLAGS = []
 LINK_SEARCH_PATH = []
 STATIC_FILES = []
 
-REQUIREMENTS += [':libcurl.so.4']
+if 'CONFIG_APPLAUNCH_DARWIN_SDL' in os.environ:
+    # macOS ships libcurl as a .dylib; the -l:<file> spelling is GNU ld only.
+    REQUIREMENTS += ['curl']
+else:
+    REQUIREMENTS += [':libcurl.so.4']
 DEFINITIONS += ['-DAPPLAUNCH_USE_LIBCURL=1']
 
 # Generate page_app includes into build output so builds do not rewrite source files.
@@ -179,25 +183,25 @@ if 'CONFIG_APPLAUNCH_MAC_CROSS_CP0' in os.environ:
 
     LDFLAGS += [f'{os.environ.get("CONFIG_TOOLCHAIN_SYSROOT", "")}/usr/lib/aarch64-linux-gnu/libstdc++.so.6',f'-Wl,-rpath-link,{os.environ.get("CONFIG_TOOLCHAIN_SYSROOT", "")}/usr/lib/aarch64-linux-gnu',f'-B{os.environ.get("CONFIG_TOOLCHAIN_SYSROOT", "")}/usr/lib/aarch64-linux-gnu']
     DEFINITIONS += ['-Wno-format-truncation']
-# macOS
+# macOS native SDL2 simulator (Apple clang + Homebrew SDL2/FreeType)
 if 'CONFIG_APPLAUNCH_DARWIN_SDL' in os.environ:
-    # macOS Use the SDL backend
-    REQUIREMENTS += ['cp0_lvgl']
+    def _split_pkg_libs(pkg):
+        # Homebrew pkg-config emits -L / -Wl,-framework flags next to -l entries;
+        # only -l entries are library requirements, the rest are linker flags.
+        flags = pkg_config_ldflags(pkg)
+        return ([flag for flag in flags if flag.startswith('-l')],
+                [flag for flag in flags if not flag.startswith('-l')])
 
-#     # nlohmann_json
-#     DEFINITIONS += pkg_config_cflags("nlohmann_json")
-
-#     # SDL2
-#     DEFINITIONS += pkg_config_cflags("sdl2")
-#     REQUIREMENTS += pkg_config_ldflags("sdl2")
-
-    # LVGL SDL driver also needs SDL2 headers/defines
+    sdl2_libs, sdl2_ldflags = _split_pkg_libs("sdl2")
+    freetype_libs, freetype_ldflags = _split_pkg_libs("freetype2")
+    DEFINITIONS += pkg_config_cflags("sdl2")
+    REQUIREMENTS += sdl2_libs
+    LDFLAGS += sdl2_ldflags + freetype_ldflags
     lvgl_component['DEFINITIONS'] += pkg_config_cflags("sdl2")
+    lvgl_component['DEFINITIONS'] += pkg_config_cflags("freetype2")
     lvgl_component['DEFINITIONS'] += ['-D_REENTRANT']
-
-#     # FreeType
-#     lvgl_component['DEFINITIONS'] += pkg_config_cflags("freetype2")
-#     REQUIREMENTS += pkg_config_ldflags("freetype2")
+    lvgl_component['REQUIREMENTS'] += freetype_libs
+    lvgl_component['LDFLAGS'] += freetype_ldflags
 
 if 'CONFIG_APPLAUNCH_WIN_X86_CROSS_CP0' in os.environ:
     rootfs_lib_path = rootfs_path/"lib"/"aarch64-linux-gnu"
