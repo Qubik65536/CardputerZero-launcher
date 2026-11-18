@@ -172,6 +172,28 @@ let fill_circle display cx cy radius color alpha =
     done
   done
 
+(* Draw a 1-pixel line from (x0, y0) to (x1, y1) (Bresenham's algorithm). *)
+let draw_line display x0 y0 x1 y1 color =
+  let dx = abs (x1 - x0) and dy = -abs (y1 - y0) in
+  let step_x = if x0 < x1 then 1 else -1 and step_y = if y0 < y1 then 1 else -1 in
+  let rec step x y error =
+    set_pixel display x y color;
+    if x <> x1 || y <> y1 then begin
+      let doubled = 2 * error in
+      let x, error = if doubled >= dy then (x + step_x, error + dy) else (x, error) in
+      let y, error = if doubled <= dx then (y + step_y, error + dx) else (y, error) in
+      step x y error
+    end
+  in
+  step x0 y0 (dx + dy)
+
+(* Draw the 1-pixel outline of a rectangle. *)
+let stroke_rect display x y w h color =
+  fill_rect display x y w 1 color;
+  fill_rect display x (y + h - 1) w 1 color;
+  fill_rect display x y 1 h color;
+  fill_rect display (x + w - 1) y 1 h color
+
 (* Draw an image made by scripts/png_to_rgb565.py (with or without --alpha),
    e.g. [draw_image display 0 0 Wallpaper.data] (src/dune embeds the file). *)
 let draw_image display x y image =

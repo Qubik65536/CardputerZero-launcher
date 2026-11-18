@@ -39,7 +39,7 @@ Debian trixie.
 ## Project tour
 
 The app is described in [framebuffer apps](framebuffer-apps.md#the-template-app):
-a home screen and three demos.
+a home screen and four demos.
 
 | File | Contents |
 | --- | --- |
@@ -47,10 +47,11 @@ a home screen and three demos.
 | `src/ui.ml` | `language`, `language_color` and the palette; `draw_header`, `draw_hint`, `draw_shadowed_text`; `type action` |
 | `src/home.ml` | The home screen: wallpaper (`Wallpaper.data`), greeting, menu (`demos`) |
 | `src/colors.ml` | RGB triangle (barycentric shading) and HSV wheel |
-| `src/motion.ml` | The ball: momentum, bounces, trail, sparks |
+| `src/motion.ml` | The ball: momentum, bounces, trail, sparks; the physics readout and speed graph |
 | `src/repl.ml` | The terminal-style screen: scrollback, input line, history, `help`/`vars`/`clear` |
+| `src/widgets.ml` | The widget form: `type widget` rows, focus, `change` (Z/C) and `activate` (ENTER), one `draw_*` function per widget |
 | `src/calc.ml` | The calculator language (`Calc.run calculator line : (string, string) result`), a library of its own so the tests can use it |
-| `src/display.ml` | `open_display ()`, `width`, `height`, `clear`, `fill_rect d x y w h color`, `set_pixel`, `blend_pixel`, `shade_rect`, `fill_circle`, `draw_image d x y image`, `draw_text d x y text color scale`, `text_width`, `present`, `close`; `rgb r g b`, `blend`, `black`, `white`, `char_width`, `char_height` |
+| `src/display.ml` | `open_display ()`, `width`, `height`, `clear`, `fill_rect d x y w h color`, `set_pixel`, `blend_pixel`, `shade_rect`, `stroke_rect`, `draw_line d x0 y0 x1 y1 color`, `fill_circle`, `draw_image d x y image`, `draw_text d x y text color scale`, `text_width`, `present`, `close`; `rgb r g b`, `blend`, `black`, `white`, `char_width`, `char_height` |
 | `src/input.ml` | `open_keyboard ()`, `poll : t -> event option`, `close`; `event = { code; state }`, `is_down`; `Keys.*`; `direction code : direction option`; `create_typist ()`, `char_for typist event : char option` |
 | `src/font.ml` | The 8x16 glyph table |
 | `src/wallpaper.rgb565`, `src/embed.ml` | The home screen's 320x170 picture, and the script that embeds it (see Images) |
@@ -74,7 +75,13 @@ tick. For speed that doesn't depend on the frame rate, read
 `Unix.gettimeofday ()` each frame and pass the difference to your update.
 
 **Text input.** Pass every event to `Input.char_for` (see `main.ml`), then use
-the character in the screen that wants text, as `Repl.handle_key` does.
+the character in the screen that wants text, as `Repl.handle_key` and the
+Widgets text field do.
+
+**Forms and widgets.** `widgets.ml` shows the pattern: an array of rows, one
+focused index, and per-widget functions to change, activate and draw. Add a
+row by adding a `widget` constructor, its label in `rows`, and cases in
+`change`, `activate` and `draw`.
 
 **Images.** OCaml has no `include_bytes`, so `src/dune` has a rule that runs
 `src/embed.ml` with the `ocaml` toplevel to turn `wallpaper.rgb565` into the

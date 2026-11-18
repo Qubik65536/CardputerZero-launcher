@@ -3,18 +3,18 @@
 
    Hello Cardputer: a CardputerZero app in OCaml.
 
-   The home screen greets you and opens three demos: color rendering
-   (colors.ml), an interactive animation (motion.ml) and a terminal-style REPL
-   (repl.ml, running the little language in calc.ml). TAB moves to the next
-   demo, ESC goes back home, ESC at home quits. Keep what you need and delete
-   the rest. *)
+   The home screen greets you and opens four demos: color rendering
+   (colors.ml), an interactive animation with live physics numbers
+   (motion.ml), a terminal-style REPL (repl.ml, running the little language in
+   calc.ml) and a form of widgets (widgets.ml). TAB moves to the next demo, ESC
+   goes back home, ESC at home quits. Keep what you need and delete the rest. *)
 
 let frame_time = 0.016 (* ~60 frames per second *)
 
 (* Which screen is showing. The demos are in Home.demos order. *)
-type screen = Home_screen | Colors_screen | Motion_screen | Repl_screen
+type screen = Home_screen | Colors_screen | Motion_screen | Repl_screen | Widgets_screen
 
-let demo_screens = [| Colors_screen; Motion_screen; Repl_screen |]
+let demo_screens = [| Colors_screen; Motion_screen; Repl_screen; Widgets_screen |]
 
 type app = {
   mutable screen : screen;
@@ -22,6 +22,7 @@ type app = {
   colors : Colors.t;
   motion : Motion.t;
   repl : Repl.t;
+  widgets : Widgets.t;
   mutable running : bool;
 }
 
@@ -32,6 +33,7 @@ let create () =
     colors = Colors.create ();
     motion = Motion.create ();
     repl = Repl.create ();
+    widgets = Widgets.create ();
     running = true;
   }
 
@@ -54,6 +56,7 @@ let handle_key app event typed =
     | Colors_screen -> Colors.handle_key app.colors event
     | Motion_screen -> Motion.handle_key app.motion event
     | Repl_screen -> Repl.handle_key app.repl event typed
+    | Widgets_screen -> Widgets.handle_key app.widgets event typed
   in
   apply app action
 
@@ -66,6 +69,10 @@ let tick app =
   | Motion_screen ->
       Motion.tick app.motion;
       true
+  | Widgets_screen ->
+      let was_animated = Widgets.animated app.widgets in
+      Widgets.tick app.widgets;
+      was_animated (* one more frame to draw the button released *)
   | Home_screen | Repl_screen -> false
 
 let draw app display =
@@ -74,6 +81,7 @@ let draw app display =
   | Colors_screen -> Colors.draw app.colors display
   | Motion_screen -> Motion.draw app.motion display
   | Repl_screen -> Repl.draw app.repl display
+  | Widgets_screen -> Widgets.draw app.widgets display
 
 (* Handle every pending key event. Returns true if there were any. *)
 let rec drain_keys app keyboard typist dirty =

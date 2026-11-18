@@ -22,6 +22,7 @@ module Keys = struct
   let digit_1 = 2
   let digit_2 = 3
   let digit_3 = 4
+  let digit_4 = 5
   let enter = 28
   let space = 57
   let up = 103

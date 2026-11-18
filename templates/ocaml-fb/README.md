@@ -6,9 +6,11 @@ A CardputerZero app in OCaml 5 using only the standard library and `unix`: it
 draws into the 320x170 framebuffer and reads the keyboard as Linux input
 events. On your computer the `fbsim` simulator stands in for both.
 
-It greets you with "Hello, OCaml!" over a wallpaper and opens three demos:
+It greets you with "Hello, OCaml!" over a wallpaper and opens four demos:
 **Colors** (a spinning RGB triangle and a color wheel), **Motion** (a glowing
-ball to push around) and **REPL** (a terminal-style calculator). F/X choose,
+ball to push around, with live physics numbers), **REPL** (a terminal-style
+calculator) and **Widgets** (text field, button, slider, counter, chooser,
+switch). F/X choose,
 ENTER opens, TAB goes to the next demo, ESC goes back (and quits from home).
 Keep what you need, delete the rest.
 
@@ -55,9 +57,9 @@ Install it: `scp packages/*.deb pi@<device>: && ssh pi@<device> sudo dpkg -i hel
 | `src/main.ml` | Screen switching and the main loop. Start here. |
 | `src/ui.ml` | Language name and color, palette, header and hint drawing |
 | `src/home.ml` | Home screen: wallpaper, greeting, menu |
-| `src/colors.ml`, `src/motion.ml`, `src/repl.ml` | The three demos |
+| `src/colors.ml`, `src/motion.ml`, `src/repl.ml`, `src/widgets.ml` | The four demos |
 | `src/calc.ml`, `test/` | The REPL's calculator language and its tests |
-| `src/display.ml` | Framebuffer canvas: `fill_rect`, `fill_circle`, `draw_image`, `draw_text`, `present`, `rgb`, ... |
+| `src/display.ml` | Framebuffer canvas: `fill_rect`, `draw_line`, `fill_circle`, `draw_image`, `draw_text`, `present`, `rgb`, ... |
 | `src/input.ml` | Keyboard events, key codes, F/X/Z/C navigation, typist for typed text |
 | `src/font.ml` | Built-in 8x16 font (Unscii, public domain) |
 | `src/wallpaper.rgb565` | Home-screen picture (Qubix artwork, Apache-2.0; see `LICENSES/Qubix-wallpaper-Apache-2.0.txt`), embedded by `src/embed.ml` |
