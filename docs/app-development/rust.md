@@ -36,10 +36,11 @@ a home screen and three demos.
 | `src/ui.rs` | `LANGUAGE`, `LANGUAGE_COLOR` and the palette; `draw_header`, `draw_hint`, `draw_shadowed_text`; `enum Action` |
 | `src/home.rs` | The home screen: wallpaper (`include_bytes!("../assets/wallpaper.rgb565")`), greeting, menu (`DEMOS`) |
 | `src/colors.rs` | RGB triangle (barycentric shading) and HSV wheel |
-| `src/motion.rs` | The ball: momentum, bounces, trail, sparks |
+| `src/motion.rs` | The ball: momentum, bounces, trail, sparks; the physics readout and speed graph |
 | `src/repl.rs` | The terminal-style screen: scrollback, input line, history, `help`/`vars`/`clear` |
+| `src/widgets.rs` | The widget form: `Widget` rows, focus, `change` (Z/C) and `activate` (ENTER), one `draw_*` function per widget |
 | `src/calc.rs` | The calculator language (`Calculator::run(line) -> Result<String, String>`) and its unit tests |
-| `src/display.rs` | `Display::open()`, `width()`, `height()`, `clear`, `fill_rect`, `set_pixel`, `blend_pixel`, `shade_rect`, `fill_circle`, `draw_image`, `draw_text(x, y, text, color, scale) -> width`, `Display::text_width`, `present()`; `rgb(r, g, b)`, `blend(under, over, alpha)`, `BLACK`, `WHITE`, `CHAR_WIDTH`, `CHAR_HEIGHT` |
+| `src/display.rs` | `Display::open()`, `width()`, `height()`, `clear`, `fill_rect`, `set_pixel`, `blend_pixel`, `shade_rect`, `stroke_rect`, `draw_line`, `fill_circle`, `draw_image`, `draw_text(x, y, text, color, scale) -> width`, `Display::text_width`, `present()`; `rgb(r, g, b)`, `blend(under, over, alpha)`, `BLACK`, `WHITE`, `CHAR_WIDTH`, `CHAR_HEIGHT` |
 | `src/input.rs` | `Keyboard::open()`, `poll() -> Option<KeyEvent>`; `KeyEvent { code, state }`, `is_down()`; `keys::*`; `direction(code) -> Option<Direction>`; `Typist::new()`, `char_for(event) -> Option<char>` |
 | `src/font.rs` | The 8x16 glyph table |
 | `assets/wallpaper.rgb565` | The home screen's 320x170 picture |
@@ -72,7 +73,13 @@ last = now;
 ```
 
 **Text input.** Pass every event to `Typist::char_for` (see `run()`), then use
-the character in the screen that wants text, as `Repl::handle_key` does.
+the character in the screen that wants text, as `Repl::handle_key` and the
+Widgets text field do.
+
+**Forms and widgets.** `widgets.rs` shows the pattern: a list of rows, one
+focused index, and per-widget functions to change, activate and draw. Add a
+row by adding a `Widget` variant, its label in `ROWS`, and arms in `change`,
+`activate` and `draw`.
 
 **Images.** Convert with `scripts/png_to_rgb565.py art/player.png assets/player.rgb565 --alpha`
 and draw with `display.draw_image(10, 30, include_bytes!("../assets/player.rgb565"))`

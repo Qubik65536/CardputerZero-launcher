@@ -7,9 +7,11 @@ framebuffer and reads the keyboard as Linux input events. On your computer the
 `fbsim` simulator stands in for both, so the code you run is the code that
 ships.
 
-It greets you with "Hello, Rust!" over a wallpaper and opens three demos:
+It greets you with "Hello, Rust!" over a wallpaper and opens four demos:
 **Colors** (a spinning RGB triangle and a color wheel), **Motion** (a glowing
-ball to push around) and **REPL** (a terminal-style calculator). F/X choose,
+ball to push around, with live physics numbers), **REPL** (a terminal-style
+calculator) and **Widgets** (text field, button, slider, counter, chooser,
+switch). F/X choose,
 ENTER opens, TAB goes to the next demo, ESC goes back (and quits from home).
 Keep what you need, delete the rest.
 
@@ -53,9 +55,9 @@ Install it: `scp packages/*.deb pi@<device>: && ssh pi@<device> sudo dpkg -i hel
 | `src/main.rs` | Screen switching and the main loop. Start here. |
 | `src/ui.rs` | Language name and color, palette, header and hint drawing |
 | `src/home.rs` | Home screen: wallpaper, greeting, menu |
-| `src/colors.rs`, `src/motion.rs`, `src/repl.rs` | The three demos |
+| `src/colors.rs`, `src/motion.rs`, `src/repl.rs`, `src/widgets.rs` | The four demos |
 | `src/calc.rs` | The REPL's calculator language, with unit tests |
-| `src/display.rs` | Framebuffer canvas: `fill_rect`, `fill_circle`, `draw_image`, `draw_text`, `present`, `rgb`, ... |
+| `src/display.rs` | Framebuffer canvas: `fill_rect`, `draw_line`, `fill_circle`, `draw_image`, `draw_text`, `present`, `rgb`, ... |
 | `src/input.rs` | Keyboard events, key codes, F/X/Z/C navigation, `Typist` for typed text |
 | `src/font.rs` | Built-in 8x16 font (Unscii, public domain) |
 | `assets/wallpaper.rgb565` | Home-screen picture (Qubix artwork, Apache-2.0; see `LICENSES/Qubix-wallpaper-Apache-2.0.txt`) |

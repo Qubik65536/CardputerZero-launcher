@@ -29,6 +29,7 @@ pub mod keys {
     pub const DIGIT_1: u16 = 2;
     pub const DIGIT_2: u16 = 3;
     pub const DIGIT_3: u16 = 4;
+    pub const DIGIT_4: u16 = 5;
     pub const ENTER: u16 = 28;
     pub const SPACE: u16 = 57;
     pub const UP: u16 = 103;

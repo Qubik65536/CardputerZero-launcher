@@ -201,6 +201,36 @@ impl Display {
         }
     }
 
+    /// Draw a 1-pixel line from (x0, y0) to (x1, y1) (Bresenham's algorithm).
+    pub fn draw_line(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, color: u16) {
+        let (dx, dy) = ((x1 - x0).abs(), -(y1 - y0).abs());
+        let (step_x, step_y) = (if x0 < x1 { 1 } else { -1 }, if y0 < y1 { 1 } else { -1 });
+        let (mut x, mut y, mut error) = (x0, y0, dx + dy);
+        loop {
+            self.set_pixel(x, y, color);
+            if x == x1 && y == y1 {
+                break;
+            }
+            let doubled = 2 * error;
+            if doubled >= dy {
+                error += dy;
+                x += step_x;
+            }
+            if doubled <= dx {
+                error += dx;
+                y += step_y;
+            }
+        }
+    }
+
+    /// Draw the 1-pixel outline of a rectangle.
+    pub fn stroke_rect(&mut self, x: i32, y: i32, width: i32, height: i32, color: u16) {
+        self.fill_rect(x, y, width, 1, color);
+        self.fill_rect(x, y + height - 1, width, 1, color);
+        self.fill_rect(x, y, 1, height, color);
+        self.fill_rect(x + width - 1, y, 1, height, color);
+    }
+
     /// Draw an image made by scripts/png_to_rgb565.py (with or without --alpha),
     /// e.g. `display.draw_image(0, 0, include_bytes!("../assets/wallpaper.rgb565"))`.
     pub fn draw_image(&mut self, x: i32, y: i32, image: &[u8]) {

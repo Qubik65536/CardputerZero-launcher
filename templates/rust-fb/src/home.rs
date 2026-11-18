@@ -11,13 +11,14 @@ use crate::ui::{self, Action, LANGUAGE, LANGUAGE_COLOR, MUTED, TEXT};
 const WALLPAPER: &[u8] = include_bytes!("../assets/wallpaper.rgb565");
 
 /// The demos, in menu order: name and a short description.
-pub const DEMOS: [(&str, &str); 3] = [
+pub const DEMOS: [(&str, &str); 4] = [
     ("Colors", "color triangle and wheel"),
     ("Motion", "steer a glowing ball"),
     ("REPL", "a tiny calculator language"),
+    ("Widgets", "text field, slider, more"),
 ];
 
-const MENU_TOP: i32 = 78;
+const MENU_TOP: i32 = 68;
 const ROW_HEIGHT: i32 = 20;
 
 pub struct Home {
@@ -41,6 +42,7 @@ impl Home {
             (None, keys::DIGIT_1) => return Action::Open(0),
             (None, keys::DIGIT_2) => return Action::Open(1),
             (None, keys::DIGIT_3) => return Action::Open(2),
+            (None, keys::DIGIT_4) => return Action::Open(3),
             // Quit on a short ESC press. (Holding ESC for 3 s makes the launcher kill the app.)
             (None, keys::ESC) => return Action::Quit,
             _ => {}
@@ -51,8 +53,8 @@ impl Home {
     pub fn draw(&self, display: &mut Display) {
         let width = display.width() as i32;
         display.draw_image(0, 0, WALLPAPER);
-        ui::draw_shadowed_text(display, 16, 12, &format!("Hello, {LANGUAGE}!"), LANGUAGE_COLOR, 2);
-        ui::draw_shadowed_text(display, 18, 50, "Your CardputerZero app", MUTED, 1);
+        ui::draw_shadowed_text(display, 16, 8, &format!("Hello, {LANGUAGE}!"), LANGUAGE_COLOR, 2);
+        ui::draw_shadowed_text(display, 18, 44, "Your CardputerZero app", MUTED, 1);
 
         display.shade_rect(8, MENU_TOP - 4, width - 16, ROW_HEIGHT * DEMOS.len() as i32 + 6, 150);
         for (index, (name, description)) in DEMOS.iter().enumerate() {

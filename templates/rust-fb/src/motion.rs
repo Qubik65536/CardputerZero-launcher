@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: MIT
 
 //! Demo 2, interactive rendering: push a glowing ball around. It keeps its momentum,
-//! leaves a trail and throws sparks when it bounces off the walls.
+//! leaves a trail and throws sparks when it bounces off the walls. A readout shows its
+//! physics live: speed, direction, velocity, kinetic energy, wall hits and a speed graph.
 
 use std::collections::VecDeque;
 
-use crate::display::{rgb, Display, WHITE};
+use crate::display::{rgb, Display, CHAR_HEIGHT, WHITE};
 use crate::input::{self, keys, Direction, KeyEvent};
 use crate::ui::{self, Action, BACKGROUND, LANGUAGE_COLOR};
 
@@ -18,6 +19,11 @@ const TRAIL_LENGTH: usize = 14;
 const SPARKS_PER_BOUNCE: usize = 10;
 const SPARK_LIFE: u32 = 30; // frames
 const GRID: u16 = rgb(36, 44, 54);
+const MASS: f32 = 1.0; // for the kinetic energy readout
+const ARROW_SCALE: f32 = 8.0; // velocity arrow length per pixel/frame of speed
+const GRAPH_SAMPLES: usize = 96; // one per frame, also the graph's width in pixels
+const GRAPH_HEIGHT: i32 = 36;
+const GRAPH_MAX_SPEED: f32 = 10.0; // pixels/frame at the top of the graph
 const COLORS: [u16; 4] = [LANGUAGE_COLOR, rgb(79, 195, 247), rgb(129, 199, 132), rgb(240, 98, 146)];
 
 // The area the ball moves in: below the header, above the hint line.
@@ -56,6 +62,8 @@ pub struct Motion {
     sparks: Vec<Spark>,
     color: usize,
     random: Random,
+    hits: u32,
+    speeds: VecDeque<f32>, // newest first
 }
 
 impl Motion {
@@ -69,10 +77,18 @@ impl Motion {
             sparks: Vec::new(),
             color: 0,
             random: Random(0x2545_F491),
+            hits: 0,
+            speeds: VecDeque::new(),
         }
     }
 
+    fn speed(&self) -> f32 {
+        (self.vx * self.vx + self.vy * self.vy).sqrt()
+    }
+
+    /// A wall hit: count it and throw sparks from the contact point.
     fn burst(&mut self, x: f32, y: f32) {
+        self.hits += 1;
         for _ in 0..SPARKS_PER_BOUNCE {
             let (vx, vy) = (self.random.next_signed() * 2.5, self.random.next_signed() * 2.5 - 1.0);
             self.sparks.push(Spark { x, y, vx, vy, life: SPARK_LIFE });
@@ -103,6 +119,8 @@ impl Motion {
         }
         self.trail.push_front((self.x, self.y));
         self.trail.truncate(TRAIL_LENGTH);
+        self.speeds.push_front(self.speed());
+        self.speeds.truncate(GRAPH_SAMPLES);
         for spark in &mut self.sparks {
             spark.x += spark.vx;
             spark.y += spark.vy;
@@ -130,6 +148,40 @@ impl Motion {
         Action::Stay
     }
 
+    /// Numbers about the ball's motion, top left.
+    fn draw_readout(&self, display: &mut Display) {
+        let speed = self.speed();
+        // Screen y grows downwards; flip it so 90 degrees points up, as in math.
+        let direction = (-self.vy).atan2(self.vx).to_degrees().rem_euclid(360.0).round() as i32 % 360;
+        let energy = 0.5 * MASS * speed * speed;
+        let lines = [
+            format!("speed {speed:.2}  dir {direction}"),
+            format!("vx {:+.2}  vy {:+.2}", self.vx, self.vy),
+            format!("energy {energy:.2}  hits {}", self.hits),
+        ];
+        let top = TOP as i32 + 2;
+        display.shade_rect(0, top, 172, lines.len() as i32 * CHAR_HEIGHT + 4, 150);
+        for (row, line) in lines.iter().enumerate() {
+            display.draw_text(4, top + 2 + row as i32 * CHAR_HEIGHT, line, ui::TEXT, 1);
+        }
+    }
+
+    /// Speed over the last GRAPH_SAMPLES frames, top right, newest on the right.
+    fn draw_graph(&self, display: &mut Display, color: u16) {
+        let (left, top) = (RIGHT as i32 - GRAPH_SAMPLES as i32 - 4, TOP as i32 + 2);
+        let bottom = top + GRAPH_HEIGHT - 1;
+        display.shade_rect(left - 2, top, GRAPH_SAMPLES as i32 + 4, GRAPH_HEIGHT + 2, 150);
+        let height_of = |speed: f32| ((speed / GRAPH_MAX_SPEED).min(1.0) * (GRAPH_HEIGHT - 2) as f32) as i32;
+        let mut previous = None;
+        for (age, speed) in self.speeds.iter().enumerate() {
+            let point = (left + GRAPH_SAMPLES as i32 - 1 - age as i32, bottom - height_of(*speed));
+            if let Some((x, y)) = previous {
+                display.draw_line(x, y, point.0, point.1, color);
+            }
+            previous = Some(point);
+        }
+    }
+
     pub fn draw(&self, display: &mut Display) {
         let color = COLORS[self.color];
         display.clear(BACKGROUND);
@@ -153,6 +205,14 @@ impl Motion {
         display.fill_circle(x, y, radius + 3, color, 70);
         display.fill_circle(x, y, radius, color, 255);
         display.fill_circle(x - 3, y - 3, 3, WHITE, 140); // highlight
+        if self.speed() > 0.05 {
+            // Velocity arrow: where the ball is heading, and how fast.
+            let (tip_x, tip_y) = ((self.x + self.vx * ARROW_SCALE) as i32, (self.y + self.vy * ARROW_SCALE) as i32);
+            display.draw_line(x, y, tip_x, tip_y, WHITE);
+            display.fill_circle(tip_x, tip_y, 2, WHITE, 255);
+        }
+        self.draw_readout(display);
+        self.draw_graph(display, color);
         ui::draw_header(display, "Motion");
         ui::draw_hint(display, "F/X/Z/C push  ENTER color  SPACE stop");
     }

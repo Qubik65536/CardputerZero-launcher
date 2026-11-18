@@ -3,9 +3,10 @@
 
 //! Hello Cardputer: a CardputerZero app in Rust.
 //!
-//! The home screen greets you and opens three demos: color rendering (`colors.rs`),
-//! an interactive animation (`motion.rs`) and a terminal-style REPL (`repl.rs`, running
-//! the little language in `calc.rs`). TAB moves to the next demo, ESC goes back home,
+//! The home screen greets you and opens four demos: color rendering (`colors.rs`),
+//! an interactive animation with live physics numbers (`motion.rs`), a terminal-style
+//! REPL (`repl.rs`, running the little language in `calc.rs`) and a form of widgets
+//! (`widgets.rs`). TAB moves to the next demo, ESC goes back home,
 //! ESC at home quits. Keep what you need and delete the rest.
 
 mod calc;
@@ -17,6 +18,7 @@ mod input;
 mod motion;
 mod repl;
 mod ui;
+mod widgets;
 
 use std::process::ExitCode;
 use std::thread;
@@ -29,6 +31,7 @@ use input::{KeyEvent, Keyboard, Typist};
 use motion::Motion;
 use repl::Repl;
 use ui::Action;
+use widgets::Widgets;
 
 const FRAME_TIME: Duration = Duration::from_millis(16); // ~60 frames per second
 
@@ -39,9 +42,10 @@ enum Screen {
     Colors,
     Motion,
     Repl,
+    Widgets,
 }
 
-const DEMO_SCREENS: [Screen; 3] = [Screen::Colors, Screen::Motion, Screen::Repl];
+const DEMO_SCREENS: [Screen; 4] = [Screen::Colors, Screen::Motion, Screen::Repl, Screen::Widgets];
 
 struct App {
     screen: Screen,
@@ -49,6 +53,7 @@ struct App {
     colors: Colors,
     motion: Motion,
     repl: Repl,
+    widgets: Widgets,
     running: bool,
 }
 
@@ -60,6 +65,7 @@ impl App {
             colors: Colors::new(),
             motion: Motion::new(),
             repl: Repl::new(),
+            widgets: Widgets::new(),
             running: true,
         }
     }
@@ -83,6 +89,7 @@ impl App {
             Screen::Colors => self.colors.handle_key(event),
             Screen::Motion => self.motion.handle_key(event),
             Screen::Repl => self.repl.handle_key(event, typed),
+            Screen::Widgets => self.widgets.handle_key(event, typed),
         };
         self.apply(action);
     }
@@ -98,6 +105,11 @@ impl App {
                 self.motion.tick();
                 true
             }
+            Screen::Widgets => {
+                let was_animated = self.widgets.animated();
+                self.widgets.tick();
+                was_animated // one more frame to draw the button released
+            }
             Screen::Home | Screen::Repl => false,
         }
     }
@@ -108,6 +120,7 @@ impl App {
             Screen::Colors => self.colors.draw(display),
             Screen::Motion => self.motion.draw(display),
             Screen::Repl => self.repl.draw(display),
+            Screen::Widgets => self.widgets.draw(display),
         }
     }
 }
