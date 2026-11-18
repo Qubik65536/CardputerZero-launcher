@@ -1,0 +1,14 @@
+// SPDX-FileCopyrightText: 2026 M5Stack Technology CO LTD
+// SPDX-License-Identifier: MIT
+.{
+    .name = .hello_cardputer,
+    .version = "0.1.0",
+    .fingerprint = 0xa14ff8c514a980a0, // tied to .name; scripts/new_app.py regenerates it
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

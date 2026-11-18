@@ -1,0 +1,9 @@
+{
+  "id": "hello-cardputer",
+  "name": "Hello Cardputer",
+  "version": "0.1.0",
+  "description": "A minimal CardputerZero app written in Zig and LVGL.",
+  "maintainer": "Your Name <you@example.com>",
+  "binary": "zig-out/device/hello-cardputer",
+  "desktop_binary": "zig-out/bin/hello-cardputer"
+}
