@@ -9,6 +9,7 @@
 #include "commount.h"
 #include "lvgl/lvgl.h"
 #include "sdl_lvgl.h"
+#include "sdl_fbsim.h"
 #include "../cp0_keyboard_key_contract.h"
 #include "cp0_keyboard_navigation_contract.h"
 #include "../cp0_keyboard_input_lifecycle.h"
@@ -629,6 +630,14 @@ void lv_sdl_keyboard_handler(SDL_Event *event)
         lv_indev_read(indev);
 }
 
+/* fbsim mode: keys arrive on CARDPUTER_INPUT instead of SDL window events. */
+static void cp0_fbsim_keyboard_timer_cb(lv_timer_t *timer)
+{
+    lv_indev_t *indev = (lv_indev_t *)lv_timer_get_user_data(timer);
+    if (cp0_fbsim_input_poll() == 0) return;
+    while (cp0_keyboard_queue_has_data())
+        lv_indev_read(indev);
+}
 
 void init_sdl_input(void)
 {
@@ -642,7 +651,8 @@ void init_sdl_input(void)
     if (LV_EVENT_KEYBOARD == 0)
         LV_EVENT_KEYBOARD = lv_event_register_id();
 
-    if (!mouse_initialized) {
+    const int fbsim = cp0_fbsim_active();
+    if (!mouse_initialized && !fbsim) {
         lv_sdl_mouse_create();
         mouse_initialized = 1;
     }
@@ -650,6 +660,8 @@ void init_sdl_input(void)
     cp0_keyboard_input_finish_create(&keyboard_lifecycle, indev);
     if (indev == NULL)
         fprintf(stderr, "cp0_lvgl: failed to create SDL keyboard input\n");
+    else if (fbsim)
+        lv_timer_create(cp0_fbsim_keyboard_timer_cb, 10, indev);
 
     pthread_mutex_unlock(&keyboard_init_mutex);
 }

@@ -7,6 +7,7 @@
 #include "hal_lvgl_bsp.h"
 #include "lvgl/lvgl.h"
 #include "sdl_lvgl.h"
+#include "sdl_fbsim.h"
 #include "../cp0_display_screenshot_contract.hpp"
 
 
@@ -16,6 +17,7 @@
 
 #include "input_keys.h"
 #include <pthread.h>
+#include <signal.h>
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -50,11 +52,33 @@ static int quit_event_filter(void *userdata, SDL_Event *event)
     return 1;
 }
 
+/* Without a window, SDL never turns SIGTERM/SIGINT into SDL_QUIT; record them directly. */
+static void quit_signal_handler(int signal_number)
+{
+    (void)signal_number;
+    atomic_store(&s_quit_requested, 1);
+}
+
+static void init_fbsim_disp(void)
+{
+    if (cp0_fbsim_display_create() == NULL) {
+        fprintf(stderr, "cp0_lvgl: failed to create fbsim display\n");
+        return;
+    }
+    signal(SIGTERM, quit_signal_handler);
+    signal(SIGINT, quit_signal_handler);
+}
+
 void init_sdl_disp(void)
 {
     static pthread_mutex_t init_mutex = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_lock(&init_mutex);
     if (lv_display_get_default() != NULL) {
+        pthread_mutex_unlock(&init_mutex);
+        return;
+    }
+    if (cp0_fbsim_active()) {
+        init_fbsim_disp();
         pthread_mutex_unlock(&init_mutex);
         return;
     }
