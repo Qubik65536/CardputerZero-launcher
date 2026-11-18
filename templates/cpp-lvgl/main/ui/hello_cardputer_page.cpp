@@ -6,86 +6,72 @@
 
 #include "hello_cardputer_page.hpp"
 
-#include "cp0_keyboard_navigation_contract.h"
-#include "cp0_lvgl_filesystem.hpp"
-#include "input_keys.h"
+#include "keyboard_input.h"
 
-#include <string>
+#include <algorithm>
 
 namespace {
 
 bool g_quit_requested = false;
 
-lv_obj_t *make_label(lv_obj_t *parent, const char *text, const lv_font_t *font, uint32_t color)
-{
-    lv_obj_t *label = lv_label_create(parent);
-    lv_label_set_text(label, text);
-    lv_obj_set_style_text_font(label, font, 0);
-    lv_obj_set_style_text_color(label, lv_color_hex(color), 0);
-    return label;
-}
-
 } // namespace
-
-HelloCardputerPage::HelloCardputerPage()
-{
-    set_page_title("Hello Cardputer");
-    create_ui();
-    // Key presses are delivered to the screen as LV_EVENT_KEY.
-    lv_obj_add_event_cb(root_screen_, key_event_cb, LV_EVENT_KEY, this);
-    update_ui();
-}
 
 bool HelloCardputerPage::quit_requested()
 {
     return g_quit_requested;
 }
 
-void HelloCardputerPage::create_ui()
+void HelloCardputerPage::show(app::Screen &screen)
 {
-    lv_obj_set_style_bg_color(ui_APP_Container, lv_color_hex(0x101418), 0);
-    lv_obj_set_style_bg_opa(ui_APP_Container, LV_OPA_COVER, 0);
-
-    lv_obj_t *title = make_label(ui_APP_Container, "Hello Cardputer", &lv_font_montserrat_20, 0xFFFFFF);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
-    lv_obj_t *subtitle = make_label(ui_APP_Container, "Your CardputerZero app", &lv_font_montserrat_12, 0x9AA4AE);
-    lv_obj_align_to(subtitle, title, LV_ALIGN_OUT_BOTTOM_MID, 0, 2);
-
-    counter_label_ = make_label(ui_APP_Container, "", &lv_font_montserrat_28, 0x4FC3F7);
-    lv_obj_align(counter_label_, LV_ALIGN_CENTER, 0, 4);
-
-    // Images from APPLaunch/share/images/: cp0_file_path() resolves the name for
-    // both the device (/usr/share/APPLaunch) and the simulator (dist/APPLaunch).
-    lv_obj_t *icon = lv_image_create(ui_APP_Container);
-    lv_image_set_src(icon, cp0_file_path("hello-cardputer_100.png").c_str());
-    lv_image_set_scale(icon, 128); // 256 = 100%: show the 100px icon at 50px
-    lv_obj_align(icon, LV_ALIGN_LEFT_MID, -6, 4);
-
-    // Keep UI text at 12px or larger: the screen is only 320x170.
-    hint_label_ = make_label(ui_APP_Container, "UP/DOWN change   ENTER reset   ESC quit",
-                             &lv_font_montserrat_12, 0x9AA4AE);
-    lv_obj_align(hint_label_, LV_ALIGN_BOTTOM_MID, 0, -10);
+    if (current_ == &screen) return;
+    if (current_) current_->hide();
+    current_ = &screen;
+    current_->show();
 }
 
-void HelloCardputerPage::update_ui()
+void HelloCardputerPage::apply(const app::Action &action)
 {
-    lv_label_set_text(counter_label_, std::to_string(counter_).c_str());
+    using Kind = app::Action::Kind;
+    switch (action.kind) {
+    case Kind::Stay: break;
+    case Kind::Home: show(home_); break;
+    case Kind::Open: show(*demos_[action.demo]); break;
+    case Kind::Next: {
+        const auto found = std::find(demos_.begin(), demos_.end(), current_);
+        const size_t index = found == demos_.end() ? 0 : static_cast<size_t>(found - demos_.begin());
+        show(*demos_[(index + 1) % demos_.size()]);
+        break;
+    }
+    case Kind::Quit: g_quit_requested = true; break;
+    }
+    // The title follows the screen (and the Colors scene).
+    set_page_title(current_->title());
 }
 
-void HelloCardputerPage::handle_key(uint32_t key)
+void HelloCardputerPage::handle_key(const key_item &key)
 {
-    // The CardputerZero keyboard has no dedicated arrow keys; this maps the
-    // keyboard's navigation keys (and real arrows in the simulator) to LV_KEY_*.
-    key = cp0_keyboard_navigation_alias(key);
-    if (key == LV_KEY_UP || key == LV_KEY_RIGHT) ++counter_;
-    else if (key == LV_KEY_DOWN || key == LV_KEY_LEFT) --counter_;
-    else if (key == LV_KEY_ENTER) counter_ = 0;
-    else if (key == LV_KEY_ESC) g_quit_requested = true;
-    update_ui();
+    // Key presses and auto-repeats; releases carry no new input. (Text sent by
+    // the automation RPC arrives as released items without a key code.)
+    const bool injected_text = key.key_code == 0 && key.utf8[0] != '\0';
+    if (key.key_state == KBD_KEY_RELEASED && !injected_text) return;
+    apply(current_->handle_key(key));
 }
 
-void HelloCardputerPage::key_event_cb(lv_event_t *event)
+// cp0_lvgl sends every key to the active screen as LV_EVENT_KEYBOARD, with the
+// Linux key code, modifiers and the text it types (Shift and the keyboard's
+// symbol layer already applied), on the device and in the simulator alike.
+void HelloCardputerPage::keyboard_event_cb(lv_event_t *event)
 {
+    if (lv_event_get_code(event) != static_cast<lv_event_code_t>(LV_EVENT_KEYBOARD)) return;
     auto *self = static_cast<HelloCardputerPage *>(lv_event_get_user_data(event));
-    self->handle_key(lv_event_get_key(event));
+    self->handle_key(*static_cast<const key_item *>(lv_event_get_param(event)));
+}
+
+HelloCardputerPage::HelloCardputerPage()
+    : home_(ui_APP_Container), colors_(ui_APP_Container), motion_(ui_APP_Container), repl_(ui_APP_Container)
+{
+    lv_obj_set_style_bg_color(ui_APP_Container, lv_color_hex(app::kBackgroundColor), 0);
+    lv_obj_set_style_bg_opa(ui_APP_Container, LV_OPA_COVER, 0);
+    lv_obj_add_event_cb(root_screen_, keyboard_event_cb, LV_EVENT_ALL, this);
+    apply(app::Action::home());
 }

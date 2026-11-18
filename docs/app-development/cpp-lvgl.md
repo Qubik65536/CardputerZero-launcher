@@ -26,7 +26,7 @@ The desktop build opens its own window when run on its own. Started by
 `fbsim`, `headless.py` or the [emulator](emulator.md) (which set
 `CARDPUTER_FB`), it draws into their framebuffer and reads their keys instead,
 so the same binary also works for screenshots and scripted tests:
-`python3 ../../scripts/fbsim/headless.py --keys "f f enter" --png shot.png -- dist/weather-station`.
+`python3 ../../scripts/fbsim/headless.py --settle 2 --keys "3 6 shift+8 7 enter" --png shot.png -- dist/weather-station`.
 
 The first device build downloads the device sysroot (~440 MB). Profiles:
 
@@ -46,7 +46,14 @@ you use in sync when you add options.
 | File | Contents |
 | --- | --- |
 | `main/src/main.cpp` | `cp0_lvgl_run_app<WeatherStationPage>(hooks)`: sets up everything, shows the page, runs the event loop until `hooks.should_quit` returns true |
-| `main/ui/weather_station_page.{hpp,cpp}` | The page: widgets in `create_ui()`, keys in `handle_key()` |
+| `main/ui/weather_station_page.{hpp,cpp}` | The page: owns the four screens, shows one at a time in `ui_APP_Container`, sets the top-bar title, routes keys and applies the `Action` a screen returns |
+| `main/ui/app_ui.{hpp,cpp}` | `kLanguage`, `kLanguageColor` and the palette; `Action`; `direction()` (F/X/Z/C and arrows), `typed_text()`; label/panel/hint helpers; the `Screen` base class (`title`, `handle_key`, `on_show`/`on_hide`, `animate()` + `on_frame()` for a 16 ms `lv_timer` that runs only while the screen shows) |
+| `main/ui/home_screen.{hpp,cpp}` | Wallpaper image, "Hello, C++!" with a shadow label, the shaded menu |
+| `main/ui/colors_screen.{hpp,cpp}` | RGB triangle and HSV wheel, rendered pixel by pixel |
+| `main/ui/motion_screen.{hpp,cpp}` | The ball: momentum, bounces, trail, sparks |
+| `main/ui/pixel_canvas.{hpp,cpp}` | An RGB565 `lv_canvas` with `set_pixel`, `blend_pixel`, `fill_rect`, `fill_circle` for software rendering |
+| `main/ui/repl_screen.{hpp,cpp}` | Scrollback labels, input line, history, `help`/`vars`/`clear`; switches the keyboard to text mode while shown |
+| `main/ui/calc.{hpp,cpp}` | The calculator language, independent of LVGL |
 | `main/SConstruct` | Sources (everything under `main/src` and `main/ui`), libraries, executable name |
 | `APPLaunch/` | Resources copied to `dist/APPLaunch/` (simulator) and installed to `/usr/share/APPLaunch/` (device): `.desktop`, icons in `share/images/`, fonts in `share/font/` |
 
@@ -62,8 +69,14 @@ All page classes come from `ext_components/cp0_lvgl/include/ui_app_page.hpp`:
 
 Build the UI with ordinary LVGL calls on `ui_APP_Container`: labels, buttons,
 lists, bars, images, flex/grid layouts. The LVGL documentation applies as-is.
-Several screens: create one page object per screen and call
-`cp0_lvgl_start_app_page(*page)` to show it (see `cp0_lvgl_app_runner.hpp`).
+Several screens: the template keeps one page and swaps containers inside
+`ui_APP_Container` (the `Screen` class in `app_ui.hpp`). Alternatively, create
+one page object per screen and call `cp0_lvgl_start_app_page(*page)` to show
+it (see `cp0_lvgl_app_runner.hpp`).
+
+**Drawing pixels.** For pictures computed in code (the Colors and Motion
+demos), draw into an RGB565 `lv_canvas` buffer and call `lv_obj_invalidate`;
+`pixel_canvas.cpp` shows how. Prefer widgets for everything else.
 
 **Quitting.** A standalone app quits when `should_quit` returns true; the
 template sets a flag on ESC. (`navigate_home` is only wired up for pages built
@@ -72,7 +85,7 @@ kill the app.
 
 ## Keyboard
 
-The template uses LVGL's key event:
+LVGL's key event is the simplest way to react to navigation keys:
 
 ```cpp
 lv_obj_add_event_cb(root_screen_, key_event_cb, LV_EVENT_KEY, this);
@@ -81,9 +94,10 @@ uint32_t key = cp0_keyboard_navigation_alias(lv_event_get_key(event));  // F/X/Z
 if (key == LV_KEY_UP) ...  else if (key == LV_KEY_ENTER) ...  else if (key == LV_KEY_ESC) ...
 ```
 
-For text input and full detail, listen for `LV_EVENT_KEYBOARD` (from
-`keyboard_input.h`; it is a variable, so cast it), whose parameter is a
-`const key_item *`: `key_code` (Linux code), `utf8` (the produced text,
+The template instead listens for `LV_EVENT_KEYBOARD` (see
+the page's `keyboard_event_cb`), which gives text input and full detail. It
+comes from `keyboard_input.h` (it is a variable, so cast it), and its
+parameter is a `const key_item *`: `key_code` (Linux code), `utf8` (the produced text,
 symbols already translated), `mods` (`KBD_MOD_SHIFT`, `KBD_MOD_CTRL`,
 `KBD_MOD_FN`, ...), `key_state` (0 released, 1 pressed, 2 repeat):
 
@@ -98,11 +112,11 @@ lv_obj_add_event_cb(root_screen_, [](lv_event_t *e) {
 While a text field is focused, call
 `cp0_keyboard_set_input_context(KBD_INPUT_CONTEXT_TEXT)` so F/X/Z/C type
 letters instead of moving. Switch back to `KBD_INPUT_CONTEXT_NAVIGATION`
-afterwards.
+afterwards. The REPL demo does this in `on_show`/`on_hide`.
 
 ## Fonts
 
-- **Built-in:** `&lv_font_montserrat_8` through `_48` (even sizes) are compiled in by the profiles. Use 12 px or larger for UI text.
+- **Built-in:** `&lv_font_montserrat_8` through `_48` (even sizes) are compiled in by the profiles. Use 12 px or larger for UI text. (The REPL demo uses Montserrat 14 and measures text widths, because the built-in monospace Unscii fonts are 8 px or 16 px wide.)
 - **TrueType:** add `CONFIG_V9_5_LV_USE_FREETYPE=y` and
   `CONFIG_CP0_LVGL_INIT_FILESYSTEM=y` to your profiles (the device profile
   already has FreeType). Then use
