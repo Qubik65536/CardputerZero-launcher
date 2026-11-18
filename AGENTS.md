@@ -69,9 +69,9 @@ launcher/
 │   └── Keyboard-Guide/        # directory lives here; main_Keyboard-Guide/ is a [submodule] (currently uninitialized)
 ├── docs/                      # three parallel 13-part launcher guides (zh/en/ja) + topical docs (see §11)
 ├── scripts/                   # packaging / release / RPC / logging / hotplug scripts; app tooling:
-│                              #   new_app.py, package_app.py, emulator_install.py, fbsim/, linux-sim/,
+│                              #   new_app.py, package_app.py, emulator_install.py, fbsim/, linux-sim/, lvgl-runtime/,
 │                              #   scons/cp0_host_toolchain.py
-├── templates/                 # third-party app templates (cpp-lvgl, rust-fb, zig-fb, ocaml-fb)
+├── templates/                 # third-party app templates (cpp-lvgl, {rust,zig,ocaml}-fb, {rust,zig,ocaml}-lvgl)
 ├── LICENSES/                  # verbatim third-party licenses (this does NOT relicense the repo)
 ├── .github/workflows/         # CI: launcher-build.yml / launcher-release.yml / emulator-build.yml
 ├── .clang-format              # Google-derived, see §8
@@ -514,6 +514,7 @@ docs/launcher工程详细说明.md / launcher-project-guide.md / launcher-projec
 | Debug a blank screen / boot failure | `docs/.../11-debugging-and-troubleshooting.md` | `journalctl --user -u APPLaunch.service -f` |
 | Debug an external app that never returns | §6.1 of this file + `tests/test_external_framebuffer_ownership.py` | `main/ui/launch.cpp` |
 | Write a third-party app (any language) | `docs/app-development/README.md` | `python3 scripts/new_app.py <template> "Name"`; templates in `templates/` |
+| LVGL from Rust/Zig/OCaml, or change the C API they use | `docs/app-development/lvgl-apps.md`, `scripts/lvgl-runtime/README.md` | C API: `ext_components/cp0_lvgl/include/cp0_app.h` + `src/cp0_app.cpp`; runtime build: `scripts/lvgl-runtime/build.sh desktop\|device` |
 | Build/run every bundled project on macOS or Linux | `docs/app-development/bundled-projects.md` | macOS cross toolchain lookup: `scripts/scons/cp0_host_toolchain.py` |
 | Run Linux-only apps/tests from macOS | `scripts/linux-sim/linux-sim.sh --help` | Docker; VNC on localhost:5900 |
 

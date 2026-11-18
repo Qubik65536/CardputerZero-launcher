@@ -6,6 +6,9 @@ The `zig-fb` template is a Zig **0.17** program that draws into the
 framebuffer and reads the keyboard. Read [framebuffer apps](framebuffer-apps.md)
 first for the shared model; this page covers the Zig specifics.
 
+Want widgets (text fields, lists, sliders) instead of pixels? The `zig-lvgl` template is the
+same app built with LVGL: see [LVGL apps in Rust, Zig and OCaml](lvgl-apps.md).
+
 ## Create, run, ship
 
 ```bash

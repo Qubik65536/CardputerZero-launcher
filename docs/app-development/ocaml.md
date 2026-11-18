@@ -7,6 +7,9 @@ library and `unix` to draw into the framebuffer and read the keyboard. Read
 [framebuffer apps](framebuffer-apps.md) first for the shared model; this page
 covers the OCaml specifics.
 
+Want widgets (text fields, lists, sliders) instead of pixels? The `ocaml-lvgl` template is the
+same app built with LVGL: see [LVGL apps in Rust, Zig and OCaml](lvgl-apps.md).
+
 ## Create, run, ship
 
 ```bash

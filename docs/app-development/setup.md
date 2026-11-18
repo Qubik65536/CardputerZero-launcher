@@ -75,6 +75,10 @@ reuse it.
 | OCaml | `opam install dune` (or `brew install ocaml dune`, `apt install ocaml-nox ocaml-dune`); Docker for device builds | `dune --version` |
 | Terminal apps | whatever your language needs on the device | |
 
+The `rust-lvgl`, `zig-lvgl` and `ocaml-lvgl` templates also need the C++
+setup (Python environment with SCons, SDL2, and for device builds the aarch64
+cross compiler) to build the LVGL runtime once: `scripts/lvgl-runtime/build.sh desktop`.
+
 ## 5. The desktop simulator for framebuffer apps
 
 ```bash

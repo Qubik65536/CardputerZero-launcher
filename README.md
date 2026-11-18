@@ -39,6 +39,7 @@ All of these live in [`docs/app-development/`](docs/app-development/) and
 | [Rust](docs/app-development/rust.md) | The `rust-fb` template: create/run/ship (cross-compiling for the device), project tour, common tasks, testing |
 | [Zig](docs/app-development/zig.md) | The `zig-fb` template: Zig 0.17, the static no-libc device binary, project tour, common tasks, testing |
 | [OCaml](docs/app-development/ocaml.md) | The `ocaml-fb` template: OCaml 5 with dune, why the device build uses Docker, project tour, common tasks, testing |
+| [LVGL apps in Rust, Zig and OCaml](docs/app-development/lvgl-apps.md) | Framebuffer vs LVGL and when to pick which; the `*-lvgl` templates, the LVGL runtime (`scripts/lvgl-runtime`) and the `cp0_app.h` C API; how to call more of LVGL from each language |
 | [Terminal apps](docs/app-development/terminal-apps.md) | Apps in any language that run in the launcher's built-in terminal (`Terminal=true`): the terminal, the keys your program receives, launching and exiting |
 | [Emulator](docs/app-development/emulator.md) | Testing apps in `CardputerZero-Emulator`: running a desktop build directly with `--fb`, installing it on the emulated home screen with `emulator_install.py`, and scripted keys and screenshots (`EMU_TEST_*`) |
 | [Packaging and deploying](docs/app-development/packaging-and-deploying.md) | `cardputer-app.json`, building an arm64 `.deb` with `package_app.py`, installing it on the device (and faster iteration while developing), publishing to the App Store, manual packages |
@@ -49,8 +50,8 @@ Each template also has its own guide, which is copied into every new app:
 
 | Doc | What it covers |
 | --- | --- |
-| [Templates overview](templates/README.md) | The four templates side by side (language, UI approach, best use) and the `new_app.py` command that copies one |
-| [cpp-lvgl](templates/cpp-lvgl/README.md), [rust-fb](templates/rust-fb/README.md), [zig-fb](templates/zig-fb/README.md), [ocaml-fb](templates/ocaml-fb/README.md) | Quick reference for one template: run on your computer (fbsim or the emulator), build for the device, where things are |
+| [Templates overview](templates/README.md) | The seven templates side by side (language, UI approach, best use) and the `new_app.py` command that copies one |
+| [cpp-lvgl](templates/cpp-lvgl/README.md), [rust-fb](templates/rust-fb/README.md), [zig-fb](templates/zig-fb/README.md), [ocaml-fb](templates/ocaml-fb/README.md), [rust-lvgl](templates/rust-lvgl/README.md), [zig-lvgl](templates/zig-lvgl/README.md), [ocaml-lvgl](templates/ocaml-lvgl/README.md) | Quick reference for one template: run on your computer (fbsim or the emulator), build for the device, where things are |
 
 The `TEMPLATE.md` file in each template only marks the directory as a template
 for `new_app.py`; it is not copied into new apps.

@@ -14,6 +14,7 @@ and install it on the device.
 | You want... | Use | Language guide |
 | --- | --- | --- |
 | An app that looks like the built-in ones (LVGL widgets, top bar with clock and battery) | `cpp-lvgl` template | [C++ / LVGL](cpp-lvgl.md) |
+| The same LVGL widgets, from Rust, Zig or OCaml (forms, menus, text input made easy) | `rust-lvgl`, `zig-lvgl`, `ocaml-lvgl` | [LVGL apps in Rust, Zig and OCaml](lvgl-apps.md) |
 | Full control of every pixel (games, visualizations, custom UIs) in Rust | `rust-fb` template | [Rust](rust.md) |
 | The same in Zig (static binary, zero-setup cross-compiling) | `zig-fb` template | [Zig](zig.md) |
 | The same in OCaml | `ocaml-fb` template | [OCaml](ocaml.md) |
@@ -24,6 +25,11 @@ Linux framebuffer and reads key presses from the keyboard's evdev device. These
 are plain files, so no graphics library, binding or SDK is needed. On your computer,
 `fbsim` (a small SDL2 window) or the [emulator](emulator.md) stands in for both
 files, so the code you test is exactly the code that runs on the device.
+
+The `*-lvgl` templates are the same app built from LVGL widgets instead: more
+to set up (the LVGL runtime, built once), much less to write for text, forms
+and menus. [Framebuffer or LVGL?](lvgl-apps.md#framebuffer-or-lvgl) compares
+them.
 
 ## 10-minute quick start (Rust example; the others are the same shape)
 
@@ -77,6 +83,7 @@ Details: [device reference](device-reference.md).
 | [Setup](setup.md) | Installing everything on macOS, Linux and Windows |
 | [Bundled projects](bundled-projects.md) | Building and running every project in `projects/` (good first test of your setup) |
 | [C++ / LVGL](cpp-lvgl.md) | LVGL pages, widgets, keys, fonts, images, platform services |
+| [LVGL apps in Rust, Zig and OCaml](lvgl-apps.md) | Framebuffer vs LVGL, the LVGL runtime and `cp0_app.h`, calling more of LVGL from each language |
 | [Emulator](emulator.md) | Running your app in the device emulator, directly or from its home screen; scripted tests |
 | [Framebuffer apps](framebuffer-apps.md) | The shared model of the Rust/Zig/OCaml templates: pixels, keys, fbsim, headless tests, images, running on the device |
 | [Rust](rust.md) · [Zig](zig.md) · [OCaml](ocaml.md) | Each language's toolchain, API and recipes |
@@ -96,4 +103,5 @@ Details: [device reference](device-reference.md).
 | `scripts/emulator_install.py <app-dir>` | Adds the app to the emulator's home screen |
 | `scripts/package_app.py <app-dir>` | Builds the arm64 `.deb` and checks the launcher's rules |
 | `scripts/make_app_icon.py XY -o icon.png` | Makes a 100x100 placeholder icon |
+| `scripts/lvgl-runtime/build.sh desktop\|device` | Builds LVGL + cp0_lvgl for the `*-lvgl` templates and exports their link flags |
 | `scripts/linux-sim/linux-sim.sh` | Builds/runs/tests Linux-only projects in Docker, viewable over VNC |

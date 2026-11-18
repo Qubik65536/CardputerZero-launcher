@@ -41,6 +41,7 @@ From your app's directory, pass the command that starts its desktop build:
 | Rust | `cargo build && $EMU --fb -- target/debug/my-app` (or `$EMU --fb -- cargo run`) |
 | Zig | `zig build && $EMU --fb -- zig-out/bin/my-app` |
 | OCaml | `dune build && $EMU --fb -- _build/default/src/main.exe` |
+| Rust / Zig / OCaml LVGL | as above (`target/debug/my-app`, `zig-out/bin/my-app`, `_build/default/src/main.exe`); they draw into the emulator like the C++ template |
 | anything else | `$EMU --fb -- <command> [args...]` |
 
 The app's screen appears in the device frame. The emulator exits when the app
