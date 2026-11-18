@@ -31,6 +31,22 @@ const fn rgb565_to_xrgb8888(pixel: u16) -> u32 {
 pub const BLACK: u16 = rgb(0, 0, 0);
 pub const WHITE: u16 = rgb(255, 255, 255);
 
+/// Character cell of the built-in font at scale 1, in pixels.
+pub const CHAR_WIDTH: i32 = 8;
+pub const CHAR_HEIGHT: i32 = font::HEIGHT as i32;
+
+fn mix_channel(under: u16, over: u16, alpha: u32, shift: u32, mask: u32) -> u16 {
+    let below = (under as u32 >> shift) & mask;
+    let above = (over as u32 >> shift) & mask;
+    (((below * (255 - alpha) + above * alpha + 127) / 255) << shift) as u16
+}
+
+/// Mix two RGB565 colors: `alpha` 0 = all `under`, 255 = all `over`.
+pub fn blend(under: u16, over: u16, alpha: u8) -> u16 {
+    let alpha = alpha as u32;
+    mix_channel(under, over, alpha, 11, 0x1F) | mix_channel(under, over, alpha, 5, 0x3F) | mix_channel(under, over, alpha, 0, 0x1F)
+}
+
 struct Geometry {
     path: PathBuf,
     width: usize,
@@ -150,8 +166,60 @@ impl Display {
         }
     }
 
-    /// Draw ASCII text with the built-in 8x8 font, enlarged `scale` times
-    /// (scale 1 = 8px tall, 2 = 16px). Returns the width drawn, in pixels.
+    /// Set one pixel; coordinates outside the screen are ignored.
+    pub fn set_pixel(&mut self, x: i32, y: i32, color: u16) {
+        if x >= 0 && y >= 0 && (x as usize) < self.width && (y as usize) < self.height {
+            self.pixels[y as usize * self.width + x as usize] = color;
+        }
+    }
+
+    /// Mix `color` over the pixel at (x, y); `alpha` 0 = invisible, 255 = opaque.
+    pub fn blend_pixel(&mut self, x: i32, y: i32, color: u16, alpha: u8) {
+        if x >= 0 && y >= 0 && (x as usize) < self.width && (y as usize) < self.height {
+            let pixel = &mut self.pixels[y as usize * self.width + x as usize];
+            *pixel = blend(*pixel, color, alpha);
+        }
+    }
+
+    /// Darken a rectangle, e.g. behind text drawn over a picture. `alpha` 255 = black.
+    pub fn shade_rect(&mut self, x: i32, y: i32, width: i32, height: i32, alpha: u8) {
+        for row in y..y + height {
+            for column in x..x + width {
+                self.blend_pixel(column, row, BLACK, alpha);
+            }
+        }
+    }
+
+    /// Fill a circle centered on (cx, cy), mixed in with `alpha` (255 = opaque).
+    pub fn fill_circle(&mut self, cx: i32, cy: i32, radius: i32, color: u16, alpha: u8) {
+        for dy in -radius..=radius {
+            for dx in -radius..=radius {
+                if dx * dx + dy * dy <= radius * radius + radius {
+                    self.blend_pixel(cx + dx, cy + dy, color, alpha);
+                }
+            }
+        }
+    }
+
+    /// Draw an image made by scripts/png_to_rgb565.py (with or without --alpha),
+    /// e.g. `display.draw_image(0, 0, include_bytes!("../assets/wallpaper.rgb565"))`.
+    pub fn draw_image(&mut self, x: i32, y: i32, image: &[u8]) {
+        let width = u16::from_le_bytes([image[0], image[1]]) as usize;
+        let height = u16::from_le_bytes([image[2], image[3]]) as usize;
+        let pixels = &image[4..4 + width * height * 2];
+        let alpha = image.get(4 + width * height * 2..).filter(|alpha| alpha.len() >= width * height);
+        for row in 0..height {
+            for column in 0..width {
+                let index = row * width + column;
+                let color = u16::from_le_bytes([pixels[index * 2], pixels[index * 2 + 1]]);
+                let opacity = alpha.map_or(255, |alpha| alpha[index]);
+                self.blend_pixel(x + column as i32, y + row as i32, color, opacity);
+            }
+        }
+    }
+
+    /// Draw ASCII text with the built-in 8x16 font, enlarged `scale` times
+    /// (scale 1 = 8x16 pixels per character, 2 = 16x32). Returns the width drawn.
     pub fn draw_text(&mut self, x: i32, y: i32, text: &str, color: u16, scale: i32) -> i32 {
         let mut cursor = x;
         for byte in text.bytes() {
@@ -164,14 +232,14 @@ impl Display {
                     }
                 }
             }
-            cursor += 8 * scale;
+            cursor += CHAR_WIDTH * scale;
         }
         cursor - x
     }
 
     /// Width in pixels that `draw_text` would use, e.g. for centering.
     pub fn text_width(text: &str, scale: i32) -> i32 {
-        text.len() as i32 * 8 * scale
+        text.len() as i32 * CHAR_WIDTH * scale
     }
 
     /// Copy the canvas to the screen.

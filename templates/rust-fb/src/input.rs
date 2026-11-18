@@ -24,6 +24,11 @@ pub mod keys {
     pub const ESC: u16 = 1;
     pub const BACKSPACE: u16 = 14;
     pub const TAB: u16 = 15;
+    pub const LEFTSHIFT: u16 = 42;
+    pub const RIGHTSHIFT: u16 = 54;
+    pub const DIGIT_1: u16 = 2;
+    pub const DIGIT_2: u16 = 3;
+    pub const DIGIT_3: u16 = 4;
     pub const ENTER: u16 = 28;
     pub const SPACE: u16 = 57;
     pub const UP: u16 = 103;
@@ -95,6 +100,84 @@ fn parse_event(record: &[u8; INPUT_EVENT_SIZE]) -> Option<KeyEvent> {
         _ => KeyState::Repeated,
     };
     Some(KeyEvent { code, state })
+}
+
+/// US desktop keyboard rows: key code of the first key, unshifted and shifted characters.
+const DESKTOP_ROWS: [(u16, &str, &str); 4] = [
+    (2, "1234567890-=", "!@#$%^&*()_+"),
+    (16, "qwertyuiop[]", "QWERTYUIOP{}"),
+    (30, "asdfghjkl;'`", "ASDFGHJKL:\"~"),
+    (43, "\\zxcvbnm,./", "|ZXCVBNM<>?"),
+];
+
+/// The CardputerZero's symbol layer (SYM + key) sends these codes; the table is the
+/// launcher's default keymap (ext_components/cp0_lvgl/src/cp0/cp0_keyboard_keymap.c).
+const DEVICE_SYMBOLS: [(u16, char); 32] = [
+    (26, '!'), (27, '@'), (39, '#'), (40, '$'), (41, '%'), (43, '^'), (51, '&'), (52, '*'),
+    (53, '('), (94, ')'), (55, '~'), (69, '`'), (70, '_'), (71, '-'), (72, '+'), (73, '='),
+    (74, '['), (75, ']'), (76, '{'), (77, '}'), (79, ';'), (80, ':'), (81, '\''), (82, '"'),
+    (83, '<'), (85, '>'), (86, '\\'), (89, '|'), (90, ','), (91, '.'), (92, '/'), (93, '?'),
+];
+
+fn desktop_char(code: u16, shift: bool) -> Option<char> {
+    if code == keys::SPACE {
+        return Some(' ');
+    }
+    DESKTOP_ROWS.iter().find_map(|(first, plain, shifted)| {
+        let index = code.checked_sub(*first)? as usize;
+        let row = if shift { shifted } else { plain };
+        row.chars().nth(index)
+    })
+}
+
+fn device_char(code: u16, shift: bool) -> Option<char> {
+    if let Some((_, symbol)) = DEVICE_SYMBOLS.iter().find(|(symbol_code, _)| *symbol_code == code) {
+        return Some(*symbol);
+    }
+    // Letters, digits and space are where a PC keyboard has them; Shift makes capitals.
+    let character = desktop_char(code, false)?;
+    if character.is_ascii_alphabetic() {
+        Some(if shift { character.to_ascii_uppercase() } else { character })
+    } else {
+        Some(character).filter(|character| character.is_ascii_digit() || *character == ' ')
+    }
+}
+
+/// Which characters keys type: the CardputerZero's own keyboard, or a US desktop
+/// keyboard (fbsim and the emulator, which set CARDPUTER_INPUT).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Layout {
+    Device,
+    Desktop,
+}
+
+/// Turns key events into typed characters, keeping track of Shift.
+pub struct Typist {
+    layout: Layout,
+    shift: bool,
+}
+
+impl Typist {
+    pub fn new() -> Typist {
+        let layout = if env::var_os("CARDPUTER_INPUT").is_some() { Layout::Desktop } else { Layout::Device };
+        Typist { layout, shift: false }
+    }
+
+    /// The character a key press types, if any. Feed it every event, releases
+    /// included, so it sees Shift go up and down.
+    pub fn char_for(&mut self, event: KeyEvent) -> Option<char> {
+        if event.code == keys::LEFTSHIFT || event.code == keys::RIGHTSHIFT {
+            self.shift = event.is_down();
+            return None;
+        }
+        if !event.is_down() {
+            return None;
+        }
+        match self.layout {
+            Layout::Device => device_char(event.code, self.shift),
+            Layout::Desktop => desktop_char(event.code, self.shift),
+        }
+    }
 }
 
 /// The built-in keyboard's event device. APPLaunch exports its path to the apps

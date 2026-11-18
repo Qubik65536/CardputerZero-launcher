@@ -1,88 +1,130 @@
 // SPDX-FileCopyrightText: 2026 M5Stack Technology CO LTD
 // SPDX-License-Identifier: MIT
 
-//! Hello Cardputer: a minimal CardputerZero app in Rust.
+//! Hello Cardputer: a CardputerZero app in Rust.
 //!
-//! Move the square with F/X/Z/C (or the arrow keys), press ENTER to change its color, ESC
-//! to quit. Start editing in `App::handle_key` and `App::draw`.
+//! The home screen greets you and opens three demos: color rendering (`colors.rs`),
+//! an interactive animation (`motion.rs`) and a terminal-style REPL (`repl.rs`, running
+//! the little language in `calc.rs`). TAB moves to the next demo, ESC goes back home,
+//! ESC at home quits. Keep what you need and delete the rest.
 
+mod calc;
+mod colors;
 mod display;
 mod font;
+mod home;
 mod input;
+mod motion;
+mod repl;
+mod ui;
 
 use std::process::ExitCode;
 use std::thread;
 use std::time::Duration;
 
-use display::{rgb, Display, WHITE};
-use input::{keys, Direction, KeyEvent, Keyboard};
+use colors::Colors;
+use display::Display;
+use home::Home;
+use input::{KeyEvent, Keyboard, Typist};
+use motion::Motion;
+use repl::Repl;
+use ui::Action;
 
 const FRAME_TIME: Duration = Duration::from_millis(16); // ~60 frames per second
-const BACKGROUND: u16 = rgb(16, 20, 24);
-const TITLE_BAR: u16 = rgb(30, 36, 44);
-const MUTED: u16 = rgb(150, 160, 170);
-const COLORS: [u16; 4] = [rgb(79, 195, 247), rgb(129, 199, 132), rgb(255, 183, 77), rgb(240, 98, 146)];
-const SQUARE: i32 = 24;
+
+/// Which screen is showing. The demos are in home::DEMOS order.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Screen {
+    Home,
+    Colors,
+    Motion,
+    Repl,
+}
+
+const DEMO_SCREENS: [Screen; 3] = [Screen::Colors, Screen::Motion, Screen::Repl];
 
 struct App {
-    x: i32,
-    y: i32,
-    color: usize,
+    screen: Screen,
+    home: Home,
+    colors: Colors,
+    motion: Motion,
+    repl: Repl,
     running: bool,
 }
 
 impl App {
-    fn new(display: &Display) -> App {
+    fn new() -> App {
         App {
-            x: (display.width() as i32 - SQUARE) / 2,
-            y: (display.height() as i32 - SQUARE) / 2,
-            color: 0,
+            screen: Screen::Home,
+            home: Home::new(),
+            colors: Colors::new(),
+            motion: Motion::new(),
+            repl: Repl::new(),
             running: true,
         }
     }
 
-    fn handle_key(&mut self, event: KeyEvent, display: &Display) {
-        if !event.is_down() {
-            return;
+    fn apply(&mut self, action: Action) {
+        match action {
+            Action::Stay => {}
+            Action::Home => self.screen = Screen::Home,
+            Action::Open(index) => self.screen = DEMO_SCREENS[index],
+            Action::Next => {
+                let index = DEMO_SCREENS.iter().position(|screen| *screen == self.screen).unwrap_or(0);
+                self.screen = DEMO_SCREENS[(index + 1) % DEMO_SCREENS.len()];
+            }
+            Action::Quit => self.running = false,
         }
-        let step = 6;
-        match (input::direction(event.code), event.code) {
-            (Some(Direction::Left), _) => self.x -= step,
-            (Some(Direction::Right), _) => self.x += step,
-            (Some(Direction::Up), _) => self.y -= step,
-            (Some(Direction::Down), _) => self.y += step,
-            (None, keys::ENTER | keys::SPACE) => self.color = (self.color + 1) % COLORS.len(),
-            // Quit on a short ESC press. (Holding ESC for 3 s makes the launcher kill the app.)
-            (None, keys::ESC) => self.running = false,
-            _ => {}
+    }
+
+    fn handle_key(&mut self, event: KeyEvent, typed: Option<char>) {
+        let action = match self.screen {
+            Screen::Home => self.home.handle_key(event),
+            Screen::Colors => self.colors.handle_key(event),
+            Screen::Motion => self.motion.handle_key(event),
+            Screen::Repl => self.repl.handle_key(event, typed),
+        };
+        self.apply(action);
+    }
+
+    /// Advance animations by one frame. Returns true if the screen needs redrawing.
+    fn tick(&mut self) -> bool {
+        match self.screen {
+            Screen::Colors => {
+                self.colors.tick();
+                self.colors.animated()
+            }
+            Screen::Motion => {
+                self.motion.tick();
+                true
+            }
+            Screen::Home | Screen::Repl => false,
         }
-        self.x = self.x.clamp(0, display.width() as i32 - SQUARE);
-        self.y = self.y.clamp(20, display.height() as i32 - SQUARE - 14);
     }
 
     fn draw(&self, display: &mut Display) {
-        let width = display.width() as i32;
-        let height = display.height() as i32;
-        display.clear(BACKGROUND);
-        display.fill_rect(0, 0, width, 18, TITLE_BAR);
-        display.draw_text(6, 5, "Hello Cardputer", WHITE, 1);
-        display.fill_rect(self.x, self.y, SQUARE, SQUARE, COLORS[self.color]);
-        let hint = "F/X/Z/C move  ENTER color  ESC quit";
-        display.draw_text((width - Display::text_width(hint, 1)) / 2, height - 11, hint, MUTED, 1);
+        match self.screen {
+            Screen::Home => self.home.draw(display),
+            Screen::Colors => self.colors.draw(display),
+            Screen::Motion => self.motion.draw(display),
+            Screen::Repl => self.repl.draw(display),
+        }
     }
 }
 
 fn run() -> std::io::Result<()> {
     let mut display = Display::open()?;
     let keyboard = Keyboard::open()?;
-    let mut app = App::new(&display);
+    let mut typist = Typist::new();
+    let mut app = App::new();
     let mut dirty = true;
     while app.running {
         while let Some(event) = keyboard.poll() {
-            app.handle_key(event, &display);
+            let typed = typist.char_for(event); // every event, so Shift is tracked
+            app.handle_key(event, typed);
             dirty = true;
         }
-        if dirty {
+        if app.tick() || dirty {
             app.draw(&mut display);
             display.present()?;
             dirty = false;

@@ -12,7 +12,7 @@ first for the shared model; this page covers the Rust specifics.
 python3 scripts/new_app.py rust-fb "Pixel Pet"       # -> projects/PixelPet/
 cd projects/PixelPet
 
-../../scripts/fbsim/fbsim -- cargo run               # desktop (F/X/Z/C or arrows, ENTER, ESC)
+../../scripts/fbsim/fbsim -- cargo run               # desktop: F/X choose, ENTER open, TAB next, ESC back
 #   or in the emulator: cardputer-zero-emu --fb -- cargo run   (see emulator.md)
 
 rustup target add aarch64-unknown-linux-gnu          # once
@@ -27,61 +27,58 @@ a binary of roughly 400 KB.
 
 ## Project tour
 
+The app is described in [framebuffer apps](framebuffer-apps.md#the-template-app):
+a home screen and three demos.
+
 | File | Contents |
 | --- | --- |
-| `src/main.rs` | `App` (your state), `handle_key`, `draw`, and the main loop in `run()` |
-| `src/display.rs` | `Display::open()`, `width()`, `height()`, `clear(color)`, `fill_rect(x, y, w, h, color)`, `draw_text(x, y, text, color, scale) -> width`, `Display::text_width(text, scale)`, `present()`; `rgb(r, g, b)`, `BLACK`, `WHITE` |
-| `src/input.rs` | `Keyboard::open()`, `poll() -> Option<KeyEvent>`; `KeyEvent { code, state }`, `is_down()`; `keys::*` constants; `direction(code) -> Option<Direction>` |
-| `src/font.rs` | The 8x8 glyph table |
+| `src/main.rs` | `App` (the current `Screen` and each screen's state), `handle_key`, `tick`, `draw`, and the main loop in `run()` |
+| `src/ui.rs` | `LANGUAGE`, `LANGUAGE_COLOR` and the palette; `draw_header`, `draw_hint`, `draw_shadowed_text`; `enum Action` |
+| `src/home.rs` | The home screen: wallpaper (`include_bytes!("../assets/wallpaper.rgb565")`), greeting, menu (`DEMOS`) |
+| `src/colors.rs` | RGB triangle (barycentric shading) and HSV wheel |
+| `src/motion.rs` | The ball: momentum, bounces, trail, sparks |
+| `src/repl.rs` | The terminal-style screen: scrollback, input line, history, `help`/`vars`/`clear` |
+| `src/calc.rs` | The calculator language (`Calculator::run(line) -> Result<String, String>`) and its unit tests |
+| `src/display.rs` | `Display::open()`, `width()`, `height()`, `clear`, `fill_rect`, `set_pixel`, `blend_pixel`, `shade_rect`, `fill_circle`, `draw_image`, `draw_text(x, y, text, color, scale) -> width`, `Display::text_width`, `present()`; `rgb(r, g, b)`, `blend(under, over, alpha)`, `BLACK`, `WHITE`, `CHAR_WIDTH`, `CHAR_HEIGHT` |
+| `src/input.rs` | `Keyboard::open()`, `poll() -> Option<KeyEvent>`; `KeyEvent { code, state }`, `is_down()`; `keys::*`; `direction(code) -> Option<Direction>`; `Typist::new()`, `char_for(event) -> Option<char>` |
+| `src/font.rs` | The 8x16 glyph table |
+| `assets/wallpaper.rgb565` | The home screen's 320x170 picture |
 
 Errors are `std::io::Error`: `main` prints them and exits with status 1, which
 you will see in `journalctl --user -u APPLaunch.service` on the device.
 
 ## Common tasks
 
-**A new screen or mode.** Add an `enum Screen { Menu, Game, GameOver }` field to
-`App`, branch in `handle_key` and `draw`.
+**Start from one demo.** Delete the screens you don't want: remove the
+`mod`, its field and `Screen` variant in `main.rs`, its entry in
+`DEMO_SCREENS` and in `home::DEMOS`. Or make one demo the whole app by
+starting `App` on its screen.
 
-**Timed updates (animation, games).** Redraw every frame instead of only when
-dirty, and advance your simulation by the elapsed time:
+**A new screen.** Copy the shape of `motion.rs`: a struct with
+`handle_key(event) -> Action`, `draw(&self, display)` and, if it animates,
+`tick()`. Add a `Screen` variant, the match arms in `main.rs`, and a line in
+`home::DEMOS` and `DEMO_SCREENS`.
+
+**Timed updates (animation, games).** `App::tick` runs every frame and returns
+whether to redraw; the demos advance by one frame per tick. For speed that
+doesn't depend on the frame rate, pass the elapsed time:
 
 ```rust
 let mut last = std::time::Instant::now();
-while app.running {
-    while let Some(event) = keyboard.poll() { app.handle_key(event, &display); }
-    let now = std::time::Instant::now();
-    app.update(now - last);          // move things by elapsed time
-    last = now;
-    app.draw(&mut display);
-    display.present()?;
-    std::thread::sleep(FRAME_TIME);
-}
+// in the loop:
+let now = std::time::Instant::now();
+app.update(now - last);          // move things by elapsed time
+last = now;
 ```
 
-**Images.** Convert with `scripts/png_to_rgb565.py art/player.png assets/player.rgb565 --alpha`,
-then add this to `src/display.rs` (inside `impl Display`):
+**Text input.** Pass every event to `Typist::char_for` (see `run()`), then use
+the character in the screen that wants text, as `Repl::handle_key` does.
 
-```rust
-/// Draw an image made by scripts/png_to_rgb565.py (with or without --alpha).
-pub fn draw_image(&mut self, x: i32, y: i32, image: &[u8]) {
-    let width = u16::from_le_bytes([image[0], image[1]]) as usize;
-    let height = u16::from_le_bytes([image[2], image[3]]) as usize;
-    let pixels = &image[4..4 + width * height * 2];
-    let alpha = image.get(4 + width * height * 2..);
-    for row in 0..height {
-        for column in 0..width {
-            let index = row * width + column;
-            if alpha.is_some_and(|alpha| alpha[index] < 128) {
-                continue; // transparent
-            }
-            let color = u16::from_le_bytes([pixels[index * 2], pixels[index * 2 + 1]]);
-            self.fill_rect(x + column as i32, y + row as i32, 1, 1, color);
-        }
-    }
-}
-```
-
-and use it with `display.draw_image(10, 30, include_bytes!("../assets/player.rgb565"));`.
+**Images.** Convert with `scripts/png_to_rgb565.py art/player.png assets/player.rgb565 --alpha`
+and draw with `display.draw_image(10, 30, include_bytes!("../assets/player.rgb565"))`
+(a `const` like `home.rs`'s `WALLPAPER` keeps it tidy). A new wallpaper:
+`python3 ../../scripts/png_to_rgb565.py my-picture.png assets/wallpaper.rgb565`
+with a 320x170 PNG.
 
 **Saving data.** `std::env::var("HOME")` is `/home/pi` on the device; write to
 `$HOME/.local/share/pixel-pet/` with `std::fs`.
@@ -96,9 +93,9 @@ well on top of `Display`: implement its `DrawTarget` trait with `fill_rect`.
 ## Testing
 
 ```bash
-cargo test                                                       # your unit tests
+cargo test                                                       # unit tests (calc.rs has some)
 cargo build && python3 ../../scripts/fbsim/headless.py \
-    --keys "c c enter esc" --png /tmp/shot.png --expect-exit 0 -- ./target/debug/pixel-pet
+    --keys "3 6 shift+8 7 enter" --png /tmp/shot.png -- ./target/debug/pixel-pet
 ```
 
 To check the device binary itself on a Mac with Docker/OrbStack (Debian
