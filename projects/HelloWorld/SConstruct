@@ -35,6 +35,11 @@ if os.environ.get("CONFIG_DEFAULT_FILE") == None:
     else:
         os.environ["CONFIG_DEFAULT_FILE"] = "config_defaults.mk"
 
+# Make Homebrew cross toolchains visible to SCons on macOS (see the helper).
+sys.path.insert(0, str(local_path.parent.parent / "scripts" / "scons"))
+from cp0_host_toolchain import configure_host_toolchain
+configure_host_toolchain(os.environ["CONFIG_DEFAULT_FILE"])
+
 # The SDK only generates Kconfig output when global_config.mk is absent. Invalidate
 # generated configuration when callers switch between SDL and cross defaults.
 selected_config_path = Path(os.environ["CONFIG_DEFAULT_FILE"]).resolve()
