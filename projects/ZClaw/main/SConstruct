@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 import os
+import platform
 import shutil
 from pathlib import Path
 
@@ -64,17 +65,60 @@ lvgl_component['PRIVATE_INCLUDE'] = [
     ADir('../../../SDK/github_source/lvgl/lvgl_9_5/lvgl/src/libs/freetype'),
 ] + lvgl_component['PRIVATE_INCLUDE']
 
+def host_pkg_config(pkg):
+    """Return (cflags, libs, ldflags) for a host package, or None for cross builds.
+
+    pkg-config on the build machine describes host libraries, so it is only used
+    when no sysroot is configured. Homebrew emits -L / -Wl,-framework flags next
+    to -l entries; only -l entries are library requirements for the SDK build.
+    """
+    if os.environ.get('CONFIG_TOOLCHAIN_SYSROOT'):
+        return None
+    cflags = pkg_config_cflags(pkg)
+    flags = pkg_config_ldflags(pkg)
+    if not cflags and not flags:
+        return None
+    return (cflags,
+            [flag for flag in flags if flag.startswith('-l')],
+            [flag for flag in flags if not flag.startswith('-l')])
+
 if 'CONFIG_V9_5_LV_USE_SDL' in os.environ:
-    lvgl_component['REQUIREMENTS'] += ['SDL2']
-    lvgl_component['INCLUDE'] += ['/usr/include/SDL2']
+    sdl2 = host_pkg_config('sdl2')
+    if sdl2:
+        lvgl_component['DEFINITIONS'] += sdl2[0]
+        lvgl_component['REQUIREMENTS'] += sdl2[1]
+        lvgl_component['LDFLAGS'] += sdl2[2]
+    else:
+        lvgl_component['REQUIREMENTS'] += ['SDL2']
+        lvgl_component['INCLUDE'] += ['/usr/include/SDL2']
     lvgl_component['DEFINITIONS'] += ['-D_REENTRANT']
 
 if 'CONFIG_V9_5_LV_USE_FREETYPE' in os.environ:
-    lvgl_component['REQUIREMENTS'] += ['freetype']
-    lvgl_component['INCLUDE'] += [
-        f"{os.path.join(toolchain_sysroot, 'usr', 'include', 'freetype2')}",
-        f"{os.path.join(toolchain_sysroot, 'usr', 'include', 'libpng16')}",
-    ]
+    freetype = host_pkg_config('freetype2')
+    if freetype:
+        lvgl_component['DEFINITIONS'] += freetype[0]
+        lvgl_component['REQUIREMENTS'] += freetype[1]
+        lvgl_component['LDFLAGS'] += freetype[2]
+    else:
+        lvgl_component['REQUIREMENTS'] += ['freetype']
+        lvgl_component['INCLUDE'] += [
+            f"{os.path.join(toolchain_sysroot, 'usr', 'include', 'freetype2')}",
+            f"{os.path.join(toolchain_sysroot, 'usr', 'include', 'libpng16')}",
+        ]
+
+# OpenSSL lives outside the default search paths on macOS (Homebrew keg).
+openssl = host_pkg_config('openssl')
+if openssl:
+    DEFINITIONS += openssl[0]
+    LDFLAGS += openssl[2]
+
+hv_component = next((c for c in env['COMPONENTS'] if c['target'] == 'hv'), None)
+if hv_component is not None and openssl:
+    hv_component['DEFINITIONS_PRIVATE'] += openssl[0]
+    hv_component['LDFLAGS'] += openssl[2]
+if hv_component is not None and platform.system() == 'Darwin' and not os.environ.get('CONFIG_TOOLCHAIN_SYSROOT'):
+    # libhv's bundled hconfig.h is generated for Linux; macOS has no eventfd.
+    hv_component['DEFINITIONS_PRIVATE'] += ['-DHAVE_EVENTFD=0']
 
 env['COMPONENTS'].append({
     'target': env['PROJECT_NAME'],

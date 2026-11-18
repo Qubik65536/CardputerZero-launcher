@@ -6,9 +6,8 @@
 
 #include "zclaw_key_event_adapter.h"
 
+#include "input_keys.h"
 #include "keyboard_input.h"
-
-#include <linux/input.h>
 
 namespace zclaw {
 namespace {

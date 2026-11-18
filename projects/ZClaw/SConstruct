@@ -28,8 +28,17 @@ if os.environ.get("CardputerZero", '') == 'y':
     os.environ["CONFIG_DEFAULT_FILE"] = "linux_x86_cross_cp0_config_defaults.mk"
 
 if os.environ.get("CONFIG_DEFAULT_FILE") == None:
-    if platform.machine() == 'x86_64':
+    if platform.system() == 'Darwin':
+        os.environ["CONFIG_DEFAULT_FILE"] = "darwin_config_defaults.mk"
+    elif platform.machine() == 'x86_64':
         os.environ["CONFIG_DEFAULT_FILE"] = "linux_x86_sdl2_config_defaults.mk"
+    else:
+        os.environ["CONFIG_DEFAULT_FILE"] = "config_defaults.mk"
+
+# Make Homebrew cross toolchains visible to SCons on macOS (see the helper).
+sys.path.insert(0, str(local_path.parent.parent / "scripts" / "scons"))
+from cp0_host_toolchain import configure_host_toolchain
+configure_host_toolchain(os.environ["CONFIG_DEFAULT_FILE"])
 
 # The SDK only regenerates Kconfig output when global_config.mk is absent.
 # Track both defaults path and contents so config switches cannot reuse stale output.

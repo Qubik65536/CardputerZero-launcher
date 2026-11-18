@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <stdlib.h>
+#include <unistd.h> // mkdtemp() is declared here on macOS
 
 namespace zclaw {
 
