@@ -2,8 +2,13 @@ Unscii bitmap fonts
 Author: Viznut (http://viznut.fi/unscii/)
 Status: released by the author into the public domain.
 
-The 8x8 glyph tables in templates/*/src/font.* and scripts/make_app_icon.py
-were extracted from LVGL's converted copy of unscii-8
+The 8x16 glyph tables in templates/*/src/font.* were generated from
+unscii-16.hex as downloaded from http://viznut.fi/unscii/unscii-16.hex
+(SHA-256 2642c8b748fa81f24d76772d70c55faa720d98fadfec8133daf89136c5c8bfb1).
+Only the printable ASCII range 0x20-0x7F is used.
+
+The 8x8 glyph table in scripts/make_app_icon.py was extracted from LVGL's
+converted copy of unscii-8
 (SDK/github_source/lvgl/lvgl_9_5/lvgl/src/font/lv_font_unscii_8.c, generated
 with "lv_font_conv --bpp 1 --size 8 --font unscii-8.ttf -r 0x20-0x7F"),
 which LVGL redistributes within its MIT-licensed source tree

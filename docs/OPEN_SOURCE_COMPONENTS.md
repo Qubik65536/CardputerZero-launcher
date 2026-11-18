@@ -28,7 +28,8 @@ Paths in the evidence column are relative to the repository root.
 | tinyalsa | Calculator `main/SConstruct` requirement `tinyalsa_component` | [BSD-3-Clause](../LICENSES/tinyalsa-BSD-3-Clause.txt), copied from upstream `NOTICE` (`LICENSE` points there) |
 | libv4l / libv4lconvert | CameraApp `main_CameraApp/SConstruct` links static libraries from Ubuntu `libv4l-dev_1.32.0-2ubuntu1_arm64.deb` | [Matching 1.32.0-2ubuntu1 package copyright](../LICENSES/libv4l-1.32.0-copyright.txt): LGPL-2.1-or-later for core libraries, plus per-file BSD/JPEG/GPL terms |
 | Noto Sans SC generated fonts | Keyboard Guide `src/assets/res_c/font_noto_sans_sc_*.c`; conversion command names input font | [OFL-1.1](../projects/LaunchWizard/main_Keyboard_Guide/src/assets/fonts/NotoSans/OFL.txt) |
-| Unscii 8 glyphs | `templates/*/src/font.*` and `scripts/make_app_icon.py`: 8x8 ASCII tables extracted from LVGL's `lv_font_unscii_8.c` | [Public domain](../LICENSES/Unscii-public-domain.txt), Viznut |
+| Unscii glyphs | `templates/*/src/font.*`: 8x16 ASCII tables from `unscii-16.hex`; `scripts/make_app_icon.py`: 8x8 table extracted from LVGL's `lv_font_unscii_8.c` | [Public domain](../LICENSES/Unscii-public-domain.txt), Viznut |
+| Qubix wallpaper | `templates/*`: `wallpaper.rgb565` / `wallpaper.png`, scaled and cropped from the Qubix OS GRUB background | [Apache-2.0](../LICENSES/Qubix-wallpaper-Apache-2.0.txt), from `Qubik65536/qubix-os-bluebuild` |
 | JetBrains Mono | `projects/APPLaunch/APPLaunch/share/font` | [OFL-1.1](../projects/APPLaunch/APPLaunch/share/font/JetBrainsMono-OFL.txt) |
 
 LVGL embeds separately licensed codecs, renderers and fonts. Preserve its `src/libs/*/LICENSE*`, `src/stdlib/builtin/LICENSE*` and `scripts/built_in_font/font_license/` records when distributing those features. Generated font arrays retain the input font's license. Audio notices remain beside assets, including FactoryTest and ZClaw `LICENSE-UI-SFX.txt` and Keyboard Guide `LICENSE-AUDIO`.
