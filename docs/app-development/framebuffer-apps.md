@@ -18,7 +18,7 @@ app, so you can compare languages line by line:
 | **Colors** | A spinning RGB triangle and an HSV color wheel, computed pixel by pixel | Z/C turn, SPACE pause, ENTER switch |
 | **Motion** | A glowing ball with momentum, a trail and sparks when it bounces, plus live physics: speed, direction, velocity, kinetic energy, wall hits, a velocity arrow and a speed graph | F/X/Z/C push, ENTER color, SPACE stop |
 | **REPL** | A terminal-style calculator: `x = 6 * 7`, `ans`, `abs` `min` `max`, `help`, `vars`, `clear` | type, ENTER runs, UP/DOWN history |
-| **Widgets** | A form: text field, button, slider, counter, chooser (which recolors the form) and switch, with a status line | F/X move, Z/C change, ENTER press; in the text field type, ENTER moves on |
+| **Widgets** | A form: text field, buttons ("Say hello" and "Count +1"), slider, counter, chooser (which recolors the form) and switch, with a status line | F/X move, Z/C change, ENTER press; in the text field type, ENTER moves on |
 
 TAB jumps to the next demo and ESC goes back home. The code is split the same
 way in every language:

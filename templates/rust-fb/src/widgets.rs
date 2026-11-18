@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 M5Stack Technology CO LTD
 // SPDX-License-Identifier: MIT
 
-//! Demo 4, widgets: a small form with a text field, a button, a slider, a counter, a
+//! Demo 4, widgets: a small form with a text field, two buttons, a slider, a counter, a
 //! chooser and a switch, drawn by hand on the framebuffer. One widget has the focus;
 //! F/X move it, Z/C change the value, ENTER presses. The text field takes typing.
 
@@ -13,13 +13,18 @@ use crate::ui::{self, Action, LANGUAGE, MUTED, TEXT};
 enum Widget {
     Name,
     Button,
+    AddOne,
     Volume,
     Count,
     Color,
     Sound,
 }
 
-/// The form, top to bottom, with each row's label.
+/// The order F/X move the focus in. The two buttons share the "Button" row.
+const FOCUS_ORDER: [Widget; 7] =
+    [Widget::Name, Widget::Button, Widget::AddOne, Widget::Volume, Widget::Count, Widget::Color, Widget::Sound];
+
+/// The form's rows, top to bottom, with each row's label.
 const ROWS: [(Widget, &str); 6] = [
     (Widget::Name, "Name"),
     (Widget::Button, "Button"),
@@ -44,18 +49,22 @@ const WIDGET_WIDTH: i32 = 242;
 const MAX_NAME: usize = 24;
 const SLIDER_WIDTH: i32 = 176;
 const VOLUME_STEP: i32 = 5;
-const PRESS_FRAMES: u32 = 10; // how long the button shows as pressed
+const PRESS_FRAMES: u32 = 10; // how long a button shows as pressed
+const HELLO_WIDTH: i32 = 120;
+const ADD_ONE_LEFT: i32 = WIDGET_LEFT + HELLO_WIDTH + 8;
+const ADD_ONE_WIDTH: i32 = 96;
 const FIELD: u16 = rgb(8, 10, 14);
 const BORDER: u16 = rgb(60, 70, 82);
 const FACE: u16 = rgb(28, 34, 42);
 
 pub struct Widgets {
-    focus: usize, // index into ROWS
+    focus: usize, // index into FOCUS_ORDER
     name: String,
     volume: i32, // 0..=100
     count: i32,
     choice: usize, // index into CHOICES
     sound: bool,
+    pressed: Widget, // the button shown pressed while pressed_frames > 0
     pressed_frames: u32,
     status: String, // what the last action did
 }
@@ -69,6 +78,7 @@ impl Widgets {
             count: 0,
             choice: CHOICES.iter().position(|(name, _)| *name == LANGUAGE).unwrap_or(0),
             sound: true,
+            pressed: Widget::Button,
             pressed_frames: 0,
             status: "Try every widget".to_string(),
         }
@@ -80,10 +90,10 @@ impl Widgets {
     }
 
     fn focused(&self) -> Widget {
-        ROWS[self.focus].0
+        FOCUS_ORDER[self.focus]
     }
 
-    /// True while the button shows its pressed state.
+    /// True while a button shows its pressed state.
     pub fn animated(&self) -> bool {
         self.pressed_frames > 0
     }
@@ -93,7 +103,7 @@ impl Widgets {
     }
 
     fn move_focus(&mut self, step: isize) {
-        self.focus = (self.focus as isize + step).rem_euclid(ROWS.len() as isize) as usize;
+        self.focus = (self.focus as isize + step).rem_euclid(FOCUS_ORDER.len() as isize) as usize;
     }
 
     /// Z/C (or left/right): step the focused widget's value.
@@ -115,17 +125,27 @@ impl Widgets {
                 self.sound = !self.sound;
                 self.status = format!("Sound {}", if self.sound { "on" } else { "off" });
             }
-            Widget::Name | Widget::Button => {}
+            Widget::Name | Widget::Button | Widget::AddOne => {}
         }
+    }
+
+    fn press(&mut self, button: Widget) {
+        self.pressed = button;
+        self.pressed_frames = PRESS_FRAMES;
     }
 
     /// ENTER or SPACE on the focused widget.
     fn activate(&mut self) {
         match self.focused() {
             Widget::Button => {
-                self.pressed_frames = PRESS_FRAMES;
+                self.press(Widget::Button);
                 let name = self.name.trim();
                 self.status = format!("Hello, {}!", if name.is_empty() { "stranger" } else { name });
+            }
+            Widget::AddOne => {
+                self.press(Widget::AddOne);
+                self.count += 1;
+                self.status = format!("Count {}", self.count);
             }
             Widget::Count => {
                 self.count = 0;
@@ -186,14 +206,18 @@ impl Widgets {
         }
     }
 
-    fn draw_button(&self, display: &mut Display, y: i32, focused: bool) {
+    fn draw_button(&self, display: &mut Display, x: i32, y: i32, width: i32, button: Widget, label: &str) {
         let accent = self.accent();
-        let (width, label) = (120, "Say hello");
-        let pressed = self.pressed_frames > 0;
-        display.fill_rect(WIDGET_LEFT, y, width, ROW_HEIGHT, if pressed { accent } else { FACE });
-        display.stroke_rect(WIDGET_LEFT, y, width, ROW_HEIGHT, if focused { accent } else { BORDER });
-        let x = WIDGET_LEFT + (width - Display::text_width(label, 1)) / 2;
-        display.draw_text(x, y + 1, label, if pressed { ui::BACKGROUND } else { TEXT }, 1);
+        let pressed = self.pressed_frames > 0 && self.pressed == button;
+        display.fill_rect(x, y, width, ROW_HEIGHT, if pressed { accent } else { FACE });
+        display.stroke_rect(x, y, width, ROW_HEIGHT, if self.focused() == button { accent } else { BORDER });
+        let text_x = x + (width - Display::text_width(label, 1)) / 2;
+        display.draw_text(text_x, y + 1, label, if pressed { ui::BACKGROUND } else { TEXT }, 1);
+    }
+
+    fn draw_buttons(&self, display: &mut Display, y: i32) {
+        self.draw_button(display, WIDGET_LEFT, y, HELLO_WIDTH, Widget::Button, "Say hello");
+        self.draw_button(display, ADD_ONE_LEFT, y, ADD_ONE_WIDTH, Widget::AddOne, "Count +1");
     }
 
     fn draw_slider(&self, display: &mut Display, y: i32, focused: bool) {
@@ -243,14 +267,15 @@ impl Widgets {
         display.clear(ui::BACKGROUND);
         for (index, (widget, label)) in ROWS.iter().enumerate() {
             let y = TOP + index as i32 * ROW_HEIGHT;
-            let focused = index == self.focus;
+            // The Button row is focused when either of its buttons is.
+            let focused = *widget == self.focused() || (*widget == Widget::Button && self.focused() == Widget::AddOne);
             if focused {
                 display.fill_rect(0, y, 3, ROW_HEIGHT, accent);
             }
             display.draw_text(8, y + 1, label, if focused { accent } else { MUTED }, 1);
             match widget {
                 Widget::Name => self.draw_text_field(display, y, focused),
-                Widget::Button => self.draw_button(display, y, focused),
+                Widget::Button | Widget::AddOne => self.draw_buttons(display, y),
                 Widget::Volume => self.draw_slider(display, y, focused),
                 Widget::Count => self.draw_counter(display, y, focused),
                 Widget::Color => self.draw_chooser(display, y, focused),
