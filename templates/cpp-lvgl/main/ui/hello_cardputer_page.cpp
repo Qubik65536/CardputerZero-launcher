@@ -7,6 +7,7 @@
 #include "hello_cardputer_page.hpp"
 
 #include "cp0_keyboard_navigation_contract.h"
+#include "cp0_lvgl_filesystem.hpp"
 #include "input_keys.h"
 
 #include <string>
@@ -52,6 +53,13 @@ void HelloCardputerPage::create_ui()
 
     counter_label_ = make_label(ui_APP_Container, "", &lv_font_montserrat_28, 0x4FC3F7);
     lv_obj_align(counter_label_, LV_ALIGN_CENTER, 0, 4);
+
+    // Images from APPLaunch/share/images/: cp0_file_path() resolves the name for
+    // both the device (/usr/share/APPLaunch) and the simulator (dist/APPLaunch).
+    lv_obj_t *icon = lv_image_create(ui_APP_Container);
+    lv_image_set_src(icon, cp0_file_path("hello-cardputer_100.png").c_str());
+    lv_image_set_scale(icon, 128); // 256 = 100%: show the 100px icon at 50px
+    lv_obj_align(icon, LV_ALIGN_LEFT_MID, -6, 4);
 
     // Keep UI text at 12px or larger: the screen is only 320x170.
     hint_label_ = make_label(ui_APP_Container, "UP/DOWN change   ENTER reset   ESC quit",
