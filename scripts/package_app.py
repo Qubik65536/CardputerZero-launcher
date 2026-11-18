@@ -26,7 +26,7 @@ and lays the package out the way APPLaunch expects:
     /usr/share/APPLaunch/share/...                      from <resources>/share/ (icons, fonts, ...)
 
 Before writing anything it checks the problems that make the launcher silently
-skip an app: a non-aarch64 binary, a .desktop whose Exec is not the installed
+skip an app: a binary that is not aarch64 (scripts with a #! line are fine), a .desktop whose Exec is not the installed
 binary or contains shell metacharacters, Type other than Application, and an
 Icon that is missing or not a PNG. Pure Python: no dpkg-deb needed.
 """
@@ -66,8 +66,10 @@ def load_manifest(app_dir):
 
 def check_aarch64_elf(binary):
     header = binary.read_bytes()[:20]
+    if header[:2] == b"#!":
+        return  # a script (Python, shell, ...): runs if its interpreter exists on the device
     if header[:4] != b"\x7fELF":
-        fail(f"{binary} is not an ELF executable (build for the device first)")
+        fail(f"{binary} is neither an ELF executable nor a #! script (build for the device first)")
     machine = int.from_bytes(header[18:20], "little")
     if machine != ELF_MACHINE_AARCH64:
         fail(f"{binary} is not an aarch64 binary (ELF machine {machine}); use the device/cross build")
