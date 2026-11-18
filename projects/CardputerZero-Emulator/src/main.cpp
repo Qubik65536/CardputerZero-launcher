@@ -248,7 +248,7 @@ static void render()
 typedef void (*ui_init_fn)(void);
 typedef void (*ui_deinit_fn)(void);
 
-#if !defined(_WIN32) && !defined(__APPLE__)
+#if !defined(_WIN32)
 extern "C" {
 void init_lvgl_env(void);
 void init_lvgl_event(void);
@@ -432,7 +432,7 @@ int main(int argc, char *argv[])
                            LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565);
 
-#if !defined(_WIN32) && !defined(__APPLE__)
+#if !defined(_WIN32)
     emu_init_cp0_runtime();
     g_kbd_handler = lv_sdl_keyboard_handler;
 #endif
@@ -597,7 +597,7 @@ done:
     SDL_DestroyRenderer(g_ren);
     SDL_DestroyWindow(g_win);
     IMG_Quit();
-#if !defined(_WIN32) && !defined(__APPLE__)
+#if !defined(_WIN32)
     // The saved-settings init starts a volume restore worker; join it before
     // the audio backend's statics go away. This host never calls deinit_audio.
     cp0_saved_volume_restore_stop();

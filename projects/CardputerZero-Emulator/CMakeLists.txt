@@ -107,6 +107,15 @@ endif()
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/lib/lvgl ${CMAKE_CURRENT_BINARY_DIR}/lvgl)
 
+if(APPLE)
+    # cp0_lvgl's sdl_lvgl_keyboard.c (linked into the macOS executable) replaces
+    # LVGL's SDL keyboard driver, as the SCons builds do; drop LVGL's copy so the
+    # force-loaded liblvgl does not define lv_sdl_keyboard_handler twice.
+    get_target_property(LVGL_SRCS lvgl SOURCES)
+    list(FILTER LVGL_SRCS EXCLUDE REGEX ".*/src/drivers/sdl/lv_sdl_keyboard\\.c$")
+    set_property(TARGET lvgl PROPERTY SOURCES ${LVGL_SRCS})
+endif()
+
 file(GLOB APPLAUNCH_LVGL_FREETYPE_SRCS CONFIGURE_DEPENDS
     ${APPLAUNCH_LVGL_OVERRIDE}/lv_freetype*.c
 )
@@ -321,6 +330,12 @@ if(UNIX AND NOT APPLE AND NOT WIN32 AND NOT CMAKE_SYSTEM_NAME MATCHES "Windows|M
     target_sources(cardputer-zero-emu PRIVATE ${CP0_LVGL_SDL_SRCS})
     target_compile_definitions(cardputer-zero-emu PRIVATE HAL_PLATFORM_SDL=1)
     target_link_options(cardputer-zero-emu PRIVATE -Wl,--allow-multiple-definition)
+elseif(APPLE)
+    # The dlopen'd APPLaunch dylib resolves the cp0_lvgl SDL runtime (keyboard
+    # queue, LVGL_RUN_FLAGE, services) from this executable via dynamic_lookup.
+    # cp0_lvgl's keyboard code uses its portable input_keys.h, so it builds here.
+    target_sources(cardputer-zero-emu PRIVATE ${CP0_LVGL_SDL_SRCS})
+    target_compile_definitions(cardputer-zero-emu PRIVATE HAL_PLATFORM_SDL=1)
 endif()
 
 target_include_directories(cardputer-zero-emu PRIVATE
