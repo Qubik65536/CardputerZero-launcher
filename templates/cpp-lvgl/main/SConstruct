@@ -1,0 +1,71 @@
+# SPDX-FileCopyrightText: 2026 M5Stack Technology CO LTD
+# SPDX-License-Identifier: MIT
+#
+# Hello Cardputer - app component. Add sources under main/src or main/ui; they
+# are picked up automatically.
+
+import os
+
+Import("env")
+with open(env["PROJECT_TOOL_S"]) as f:
+    exec(f.read())
+
+from cp0_host_toolchain import host_pkg_config  # repo scripts/scons, added to sys.path by ../SConstruct
+
+SRCS = Glob("src/*.c*") + append_srcs_dir(ADir("ui"))
+INCLUDE = [ADir("."), ADir("include"), ADir("ui")]
+PRIVATE_INCLUDE = []
+REQUIREMENTS = ["cp0_lvgl", "lvgl_component", "eventpp", "pthread"]
+STATIC_LIB = []
+DYNAMIC_LIB = []
+DEFINITIONS = []
+DEFINITIONS_PRIVATE = []
+LDFLAGS = []
+LINK_SEARCH_PATH = []
+# Copied to dist/APPLaunch/: the same layout as /usr/share/APPLaunch on the device.
+STATIC_FILES = [(ADir("../APPLaunch"), "APPLaunch")]
+
+lvgl_component = next(c for c in env["COMPONENTS"] if c["target"] == "lvgl_component")
+sysroot = os.environ.get("CONFIG_TOOLCHAIN_SYSROOT", "") or "/"
+
+
+def use_library(component, package, fallback_includes, fallback_lib):
+    """Compile/link `component` against a library: pkg-config on the host, sysroot when cross."""
+    found = host_pkg_config(package)
+    if found:
+        cflags, libs, ldflags = found
+        component["DEFINITIONS"] += cflags
+        component["REQUIREMENTS"] += libs
+        component["LDFLAGS"] += ldflags
+    else:
+        component["INCLUDE"] += fallback_includes
+        component["REQUIREMENTS"] += [fallback_lib]
+
+
+if "CONFIG_V9_5_LV_USE_SDL" in os.environ:  # desktop simulator
+    use_library(lvgl_component, "sdl2", ["/usr/include/SDL2"], "SDL2")
+    lvgl_component["DEFINITIONS"] += ["-D_REENTRANT"]
+
+if "CONFIG_V9_5_LV_USE_FREETYPE" in os.environ:  # TrueType fonts via FreeType
+    use_library(lvgl_component, "freetype2",
+                [os.path.join(sysroot, "usr", "include", "freetype2"),
+                 os.path.join(sysroot, "usr", "include", "libpng16")], "freetype")
+
+# cp0_lvgl provides its own SDL keyboard driver (device-accurate key codes).
+lvgl_component["SRCS"] = [src for src in lvgl_component["SRCS"] if "lv_sdl_keyboard.c" not in str(src)]
+
+env["COMPONENTS"].append({
+    "target": "hello-cardputer",  # executable name in dist/
+    "SRCS": SRCS,
+    "INCLUDE": INCLUDE,
+    "PRIVATE_INCLUDE": PRIVATE_INCLUDE,
+    "REQUIREMENTS": REQUIREMENTS,
+    "STATIC_LIB": STATIC_LIB,
+    "DYNAMIC_LIB": DYNAMIC_LIB,
+    "DEFINITIONS": DEFINITIONS,
+    "DEFINITIONS_PRIVATE": DEFINITIONS_PRIVATE,
+    "LDFLAGS": LDFLAGS,
+    "LINK_SEARCH_PATH": LINK_SEARCH_PATH,
+    "STATIC_FILES": STATIC_FILES,
+    "REGISTER": "project",
+})
