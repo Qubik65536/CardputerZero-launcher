@@ -21,10 +21,11 @@ struct DemoInfo
 };
 
 // The demos, in menu order (and TAB order).
-constexpr std::array<DemoInfo, 3> kDemos = {{
+constexpr std::array<DemoInfo, 4> kDemos = {{
     {"Colors", "color triangle and wheel"},
     {"Motion", "steer a glowing ball"},
     {"REPL", "a tiny calculator language"},
+    {"Widgets", "text field, slider, more"},
 }};
 
 class HomeScreen final : public Screen

@@ -11,6 +11,7 @@
 #include "home_screen.hpp"
 #include "motion_screen.hpp"
 #include "repl_screen.hpp"
+#include "widgets_screen.hpp"
 #include "ui_app_page.hpp"
 
 #include <array>
@@ -20,9 +21,10 @@
 //   - ui_APP_Container: the 320x150 content area below it, where your widgets go
 //   - root_screen_: the LVGL screen, which receives keyboard events
 //
-// The home screen greets you and opens three demos: color rendering
-// (colors_screen), an interactive animation (motion_screen) and a
-// terminal-style REPL (repl_screen, running the little language in calc).
+// The home screen greets you and opens four demos: color rendering
+// (colors_screen), an interactive animation with live physics numbers
+// (motion_screen), a terminal-style REPL (repl_screen, running the little
+// language in calc) and a form of real LVGL widgets (widgets_screen).
 // Each is an app::Screen inside ui_APP_Container; one shows at a time. TAB
 // moves to the next demo, ESC goes back home, ESC at home quits. Keep what you
 // need and delete the rest.
@@ -46,7 +48,8 @@ private:
     app::ColorsScreen colors_;
     app::MotionScreen motion_;
     app::ReplScreen repl_;
+    app::WidgetsScreen widgets_;
     // The demos in menu and TAB order (app::kDemos).
-    std::array<app::Screen *, 3> demos_ = {&colors_, &motion_, &repl_};
+    std::array<app::Screen *, 4> demos_ = {&colors_, &motion_, &repl_, &widgets_};
     app::Screen *current_ = nullptr;
 };

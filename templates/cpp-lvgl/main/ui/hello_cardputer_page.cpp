@@ -68,7 +68,8 @@ void HelloCardputerPage::keyboard_event_cb(lv_event_t *event)
 }
 
 HelloCardputerPage::HelloCardputerPage()
-    : home_(ui_APP_Container), colors_(ui_APP_Container), motion_(ui_APP_Container), repl_(ui_APP_Container)
+    : home_(ui_APP_Container), colors_(ui_APP_Container), motion_(ui_APP_Container), repl_(ui_APP_Container),
+      widgets_(ui_APP_Container)
 {
     lv_obj_set_style_bg_color(ui_APP_Container, lv_color_hex(app::kBackgroundColor), 0);
     lv_obj_set_style_bg_opa(ui_APP_Container, LV_OPA_COVER, 0);

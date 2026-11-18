@@ -44,8 +44,12 @@ public:
     void set_pixel(int x, int y, uint16_t color);
     // Mix `color` over the pixel at (x, y); `alpha` 0 = invisible, 255 = opaque.
     void blend_pixel(int x, int y, uint16_t color, uint8_t alpha);
+    // Darken a rectangle, e.g. behind text drawn over the picture. `alpha` 255 = black.
+    void shade_rect(int x, int y, int width, int height, uint8_t alpha);
     // Fill a circle centered on (cx, cy), mixed in with `alpha`.
     void fill_circle(int cx, int cy, int radius, uint16_t color, uint8_t alpha);
+    // Draw a 1-pixel line from (x0, y0) to (x1, y1) (Bresenham's algorithm).
+    void draw_line(int x0, int y0, int x1, int y1, uint16_t color);
     // Show what was drawn since the last call.
     void present();
 

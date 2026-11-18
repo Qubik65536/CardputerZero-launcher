@@ -46,13 +46,14 @@ you use in sync when you add options.
 | File | Contents |
 | --- | --- |
 | `main/src/main.cpp` | `cp0_lvgl_run_app<WeatherStationPage>(hooks)`: sets up everything, shows the page, runs the event loop until `hooks.should_quit` returns true |
-| `main/ui/weather_station_page.{hpp,cpp}` | The page: owns the four screens, shows one at a time in `ui_APP_Container`, sets the top-bar title, routes keys and applies the `Action` a screen returns |
+| `main/ui/weather_station_page.{hpp,cpp}` | The page: owns the five screens (home and four demos), shows one at a time in `ui_APP_Container`, sets the top-bar title, routes keys and applies the `Action` a screen returns |
 | `main/ui/app_ui.{hpp,cpp}` | `kLanguage`, `kLanguageColor` and the palette; `Action`; `direction()` (F/X/Z/C and arrows), `typed_text()`; label/panel/hint helpers; the `Screen` base class (`title`, `handle_key`, `on_show`/`on_hide`, `animate()` + `on_frame()` for a 16 ms `lv_timer` that runs only while the screen shows) |
 | `main/ui/home_screen.{hpp,cpp}` | Wallpaper image, "Hello, C++!" with a shadow label, the shaded menu |
 | `main/ui/colors_screen.{hpp,cpp}` | RGB triangle and HSV wheel, rendered pixel by pixel |
-| `main/ui/motion_screen.{hpp,cpp}` | The ball: momentum, bounces, trail, sparks |
-| `main/ui/pixel_canvas.{hpp,cpp}` | An RGB565 `lv_canvas` with `set_pixel`, `blend_pixel`, `fill_rect`, `fill_circle` for software rendering |
+| `main/ui/motion_screen.{hpp,cpp}` | The ball: momentum, bounces, trail, sparks; velocity arrow, speed graph and a physics readout label |
+| `main/ui/pixel_canvas.{hpp,cpp}` | An RGB565 `lv_canvas` with `set_pixel`, `blend_pixel`, `fill_rect`, `shade_rect`, `fill_circle`, `draw_line` for software rendering |
 | `main/ui/repl_screen.{hpp,cpp}` | Scrollback labels, input line, history, `help`/`vars`/`clear`; switches the keyboard to text mode while shown |
+| `main/ui/widgets_screen.{hpp,cpp}` | A form of real LVGL widgets in an `lv_group`: `lv_textarea`, `lv_button`, `lv_slider`, a -/+ counter, `lv_roller`, `lv_switch`; F/X move the focus, Z/C change, ENTER presses |
 | `main/ui/calc.{hpp,cpp}` | The calculator language, independent of LVGL |
 | `main/SConstruct` | Sources (everything under `main/src` and `main/ui`), libraries, executable name |
 | `APPLaunch/` | Resources copied to `dist/APPLaunch/` (simulator) and installed to `/usr/share/APPLaunch/` (device): `.desktop`, icons in `share/images/`, fonts in `share/font/` |
@@ -113,6 +114,24 @@ While a text field is focused, call
 `cp0_keyboard_set_input_context(KBD_INPUT_CONTEXT_TEXT)` so F/X/Z/C type
 letters instead of moving. Switch back to `KBD_INPUT_CONTEXT_NAVIGATION`
 afterwards. The REPL demo does this in `on_show`/`on_hide`.
+
+**Forms and widgets.** cp0_lvgl delivers each key twice: as
+`LV_EVENT_KEYBOARD` to the active screen, then through LVGL's keypad input
+device to the focused object of the page's `lv_group` (`LV_EVENT_KEY`). On its
+own, the second path can't run a form on the CardputerZero: there are no arrow
+keys, so F/X/Z/C turn into arrows and can't be typed into a text field.
+Letters arrive as key codes rather than characters, and LVGL moves focus only
+on `LV_KEY_NEXT`/`LV_KEY_PREV`, which the keyboard never sends. The Widgets demo
+(`widgets_screen.cpp`) therefore calls
+`cp0_keyboard_set_lvgl_keypad_intercept(1)` while it shows and handles
+`LV_EVENT_KEYBOARD` itself. F/X call `lv_group_focus_prev`/`_next` on the form's
+own group, so the focused widget gets `LV_STATE_FOCUSED` and its focus styles
+apply. Z/C and ENTER set the focused widget's value through its API and send
+the event LVGL would send (`LV_EVENT_VALUE_CHANGED`, `LV_EVENT_CLICKED`). Typed
+text goes in with `lv_textarea_add_text`, in the text input context. The form
+reacts only to widget events, so mouse clicks in the simulator window work too.
+Add a row by creating the widget, adding it to the group, and handling its
+event; give `change`/`activate` a branch if Z/C or ENTER should do something.
 
 ## Fonts
 

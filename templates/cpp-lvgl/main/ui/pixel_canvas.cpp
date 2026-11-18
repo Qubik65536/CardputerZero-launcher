@@ -7,6 +7,7 @@
 #include "pixel_canvas.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 
 namespace app {
 
@@ -70,6 +71,37 @@ void PixelCanvas::fill_circle(int cx, int cy, int radius, uint16_t color, uint8_
     for (int dy = -radius; dy <= radius; ++dy) {
         for (int dx = -radius; dx <= radius; ++dx) {
             if (dx * dx + dy * dy <= radius * radius + radius) blend_pixel(cx + dx, cy + dy, color, alpha);
+        }
+    }
+}
+
+void PixelCanvas::shade_rect(int x, int y, int width, int height, uint8_t alpha)
+{
+    for (int row = y; row < y + height; ++row) {
+        for (int column = x; column < x + width; ++column) blend_pixel(column, row, 0x0000, alpha);
+    }
+}
+
+void PixelCanvas::draw_line(int x0, int y0, int x1, int y1, uint16_t color)
+{
+    const int dx = std::abs(x1 - x0);
+    const int dy = -std::abs(y1 - y0);
+    const int step_x = x0 < x1 ? 1 : -1;
+    const int step_y = y0 < y1 ? 1 : -1;
+    int x = x0;
+    int y = y0;
+    int error = dx + dy;
+    for (;;) {
+        set_pixel(x, y, color);
+        if (x == x1 && y == y1) break;
+        const int doubled = 2 * error;
+        if (doubled >= dy) {
+            error += dy;
+            x += step_x;
+        }
+        if (doubled <= dx) {
+            error += dx;
+            y += step_y;
         }
     }
 }

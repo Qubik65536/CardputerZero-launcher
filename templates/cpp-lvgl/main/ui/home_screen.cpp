@@ -13,7 +13,7 @@ namespace app {
 
 namespace {
 
-constexpr int kMenuTop = 62;
+constexpr int kMenuTop = 50;
 constexpr int kRowHeight = 20;
 constexpr int kDescriptionX = 98;
 
@@ -51,8 +51,8 @@ HomeScreen::HomeScreen(lv_obj_t *parent) : Screen(parent)
     lv_obj_set_pos(wallpaper, 0, 0);
 
     const std::string greeting = std::string("Hello, ") + kLanguage + "!";
-    make_shadowed_label(root(), greeting.c_str(), &lv_font_montserrat_28, kLanguageColor, 14, 2, 2);
-    make_shadowed_label(root(), "Your CardputerZero app", &lv_font_montserrat_14, kMutedColor, 16, 36, 1);
+    make_shadowed_label(root(), greeting.c_str(), &lv_font_montserrat_28, kLanguageColor, 14, -2, 2);
+    make_shadowed_label(root(), "Your CardputerZero app", &lv_font_montserrat_14, kMutedColor, 16, 29, 1);
 
     make_panel(root(), 8, kMenuTop - 4, kContentWidth - 16, kRowHeight * static_cast<int>(kDemos.size()) + 6,
                0x000000, 150);
@@ -87,6 +87,7 @@ Action HomeScreen::handle_key(const key_item &key)
         case KEY_1: return Action::open(0);
         case KEY_2: return Action::open(1);
         case KEY_3: return Action::open(2);
+        case KEY_4: return Action::open(3);
         // Quit on a short ESC press. (Holding ESC for 3 s makes the launcher kill the app.)
         case KEY_ESC: return Action::quit();
         default: break;

@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 
 namespace app {
 
@@ -24,6 +25,14 @@ constexpr size_t kTrailLength = 14;
 constexpr int kSparksPerBounce = 10;
 constexpr uint32_t kSparkLife = 30;  // frames
 constexpr uint16_t kGrid = rgb565(0x242C36);
+constexpr uint16_t kWhite = rgb565(0xFFFFFF);
+constexpr float kMass = 1.0f;          // for the kinetic energy readout
+constexpr float kArrowScale = 8.0f;    // velocity arrow length per pixel/frame of speed
+constexpr int kGraphHeight = 36;
+constexpr float kGraphMaxSpeed = 10.0f;  // pixels/frame at the top of the graph
+constexpr int kReadoutWidth = 172;
+constexpr int kReadoutLines = 3;
+constexpr int kLineHeight = 16;  // lv_font_montserrat_14
 constexpr std::array<uint16_t, 4> kColors = {rgb565(kLanguageColor), rgb565(0x4FC3F7), rgb565(0x81C784),
                                              rgb565(0xF06292)};
 
@@ -40,6 +49,8 @@ MotionScreen::MotionScreen(lv_obj_t *parent)
       y_((kTop + kBottom) / 2.0f)
 {
     // Widgets created after the canvas are drawn on top of it.
+    readout_ = make_label(root(), "", &lv_font_montserrat_14, kTextColor);
+    lv_obj_set_pos(readout_, 4, static_cast<int>(kTop) + 4);
     make_demo_keys(root());
     make_hint(root(), "F/X/Z/C push  ENTER color  SPACE stop");
     animate();
@@ -54,8 +65,15 @@ float MotionScreen::next_random()
     return static_cast<float>(random_ % 2001) / 1000.0f - 1.0f;
 }
 
+float MotionScreen::speed() const
+{
+    return std::sqrt(vx_ * vx_ + vy_ * vy_);
+}
+
+// A wall hit: count it and throw sparks from the contact point.
 void MotionScreen::burst(float x, float y)
 {
+    ++hits_;
     for (int index = 0; index < kSparksPerBounce; ++index) {
         const float vx = next_random() * 2.5f;
         const float vy = next_random() * 2.5f - 1.0f;
@@ -82,6 +100,8 @@ void MotionScreen::tick()
     }
     trail_.push_front({x_, y_});
     if (trail_.size() > kTrailLength) trail_.pop_back();
+    speeds_.push_front(speed());
+    if (speeds_.size() > kGraphSamples) speeds_.pop_back();
     for (Spark &spark : sparks_) {
         spark.x += spark.vx;
         spark.y += spark.vy;
@@ -90,6 +110,39 @@ void MotionScreen::tick()
     }
     sparks_.erase(std::remove_if(sparks_.begin(), sparks_.end(), [](const Spark &spark) { return spark.life == 0; }),
                   sparks_.end());
+}
+
+// Numbers about the ball's motion, top left: a shaded panel on the canvas, text in a label.
+void MotionScreen::draw_readout()
+{
+    const float current = speed();
+    // Screen y grows downwards; flip it so 90 degrees points up, as in math.
+    float degrees = std::fmod(std::atan2(-vy_, vx_) * (180.0f / 3.14159265f), 360.0f);
+    if (degrees < 0.0f) degrees += 360.0f;
+    const int direction = static_cast<int>(std::round(degrees)) % 360;
+    const float energy = 0.5f * kMass * current * current;
+    char text[96];
+    std::snprintf(text, sizeof(text), "speed %.2f  dir %d\nvx %+.2f  vy %+.2f\nenergy %.2f  hits %u", current,
+                  direction, vx_, vy_, energy, hits_);
+    lv_label_set_text(readout_, text);
+    canvas_.shade_rect(0, static_cast<int>(kTop) + 2, kReadoutWidth, kReadoutLines * kLineHeight + 4, 150);
+}
+
+// Speed over the last kGraphSamples frames, top right, newest on the right.
+void MotionScreen::draw_graph(uint16_t color)
+{
+    const int samples = static_cast<int>(kGraphSamples);
+    const int left = static_cast<int>(kRight) - samples - 4;
+    const int top = static_cast<int>(kTop) + 2;
+    const int bottom = top + kGraphHeight - 1;
+    canvas_.shade_rect(left - 2, top, samples + 4, kGraphHeight + 2, 150);
+    const auto height_of = [](float value) {
+        return static_cast<int>(std::min(value / kGraphMaxSpeed, 1.0f) * static_cast<float>(kGraphHeight - 2));
+    };
+    for (size_t age = 1; age < speeds_.size(); ++age) {
+        const int x = left + samples - 1 - static_cast<int>(age);
+        canvas_.draw_line(x + 1, bottom - height_of(speeds_[age - 1]), x, bottom - height_of(speeds_[age]), color);
+    }
 }
 
 void MotionScreen::draw()
@@ -117,7 +170,16 @@ void MotionScreen::draw()
     canvas_.fill_circle(x, y, radius + 6, color, 35);  // glow
     canvas_.fill_circle(x, y, radius + 3, color, 70);
     canvas_.fill_circle(x, y, radius, color, 255);
-    canvas_.fill_circle(x - 3, y - 3, 3, rgb565(0xFFFFFF), 140);  // highlight
+    canvas_.fill_circle(x - 3, y - 3, 3, kWhite, 140);  // highlight
+    if (speed() > 0.05f) {
+        // Velocity arrow: where the ball is heading, and how fast.
+        const int tip_x = static_cast<int>(x_ + vx_ * kArrowScale);
+        const int tip_y = static_cast<int>(y_ + vy_ * kArrowScale);
+        canvas_.draw_line(x, y, tip_x, tip_y, kWhite);
+        canvas_.fill_circle(tip_x, tip_y, 2, kWhite, 255);
+    }
+    draw_readout();
+    draw_graph(color);
     canvas_.present();
 }
 
