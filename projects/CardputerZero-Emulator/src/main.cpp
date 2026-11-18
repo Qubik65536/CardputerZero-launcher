@@ -331,8 +331,15 @@ static void set_exe_dir()
         char *last = strrchr(path, '/');
         if (last) { *last = '\0'; chdir(path); }
     }
+#else
+    char path[4096];
+    ssize_t length = readlink("/proc/self/exe", path, sizeof(path) - 1);
+    if (length > 0) {
+        path[length] = '\0';
+        char *last = strrchr(path, '/');
+        if (last) { *last = '\0'; if (chdir(path) != 0) perror("[EMU] chdir"); }
+    }
 #endif
-    // Linux: usually launched from the right dir, or use /proc/self/exe
 }
 
 static unsigned emu_test_frame(const char *name)
