@@ -1,0 +1,9 @@
+{
+  "id": "hello-cardputer",
+  "name": "Hello Cardputer",
+  "version": "0.1.0",
+  "description": "A minimal CardputerZero app written in OCaml and LVGL.",
+  "maintainer": "Your Name <you@example.com>",
+  "binary": "device/hello-cardputer",
+  "desktop_binary": "_build/default/src/main.exe"
+}

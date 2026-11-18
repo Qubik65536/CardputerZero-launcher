@@ -1,0 +1,37 @@
+; SPDX-FileCopyrightText: 2026 M5Stack Technology CO LTD
+; SPDX-License-Identifier: MIT
+; The OCaml standard library, plus LVGL and cp0_app through C stubs
+; (lvgl_stubs.c, declared in lvgl.ml). No opam packages.
+
+; The calc language is a library of its own so test/test_calc.ml can use it.
+(library
+ (name calc)
+ (modules calc))
+
+; lvgl_flags.ml is the build-time helper below, not part of the app.
+(executable
+ (name main)
+ (modules :standard \ calc lvgl_flags)
+ (libraries calc)
+ (foreign_stubs
+  (language c)
+  (names lvgl_stubs)
+  (flags
+   (:standard -Wall -Wextra (:include cflags.sexp))))
+ (link_deps runtime.stamp)
+ (link_flags
+  (:include ldflags.sexp)))
+
+; Compile and link flags from the LVGL runtime (scripts/lvgl-runtime/out/<target>/,
+; built by scripts/lvgl-runtime/build.sh). The target is desktop (SDL window,
+; simulator) unless CP0_LVGL_TARGET=device (device/build-device.sh sets it).
+; The runtime lives outside this project, so dune cannot track it: the rule
+; runs on every build ("universe"); its outputs only change, and the app only
+; relinks, when the runtime does.
+(rule
+ (targets cflags.sexp ldflags.sexp runtime.stamp)
+ (deps
+  (universe)
+  (:script lvgl_flags.ml))
+ (action
+  (run ocaml %{script} %{env:CP0_LVGL_TARGET=desktop})))
