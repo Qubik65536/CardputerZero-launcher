@@ -5,6 +5,11 @@
 
     python3 scripts/fbsim/headless.py --keys "c c c enter" --png shot.png -- ./my-app
     python3 scripts/fbsim/headless.py --keys "esc" --expect-exit 0 -- ./my-app
+    python3 scripts/fbsim/headless.py --keys "2 shift+equal 3 enter" --png sum.png -- ./my-app
+
+Key names: letters, digits, esc backspace tab enter space up down left right,
+minus equal comma period slash semicolon apostrophe grave backslash
+leftbracket rightbracket; "shift+<name>" holds Shift (US layout: shift+8 = *).
 
 The same CARDPUTER_FB / CARDPUTER_FB_SIZE / CARDPUTER_INPUT contract as fbsim,
 without a window: handy for CI, containers and quick checks over SSH.
@@ -33,7 +38,17 @@ KEY_CODES = {
     **dict(zip("qwertyuiop", range(16, 26))),
     **dict(zip("asdfghjkl", range(30, 39))),
     **dict(zip("zxcvbnm", range(44, 51))),
+    "minus": 12, "equal": 13, "leftbracket": 26, "rightbracket": 27, "semicolon": 39,
+    "apostrophe": 40, "grave": 41, "backslash": 43, "comma": 51, "period": 52, "slash": 53,
 }
+SHIFT = 42
+
+
+def key_codes(name):
+    """'a' -> (code, False); 'shift+8' -> (code, True): Shift is held around the key."""
+    lowered = name.lower()
+    shifted = lowered.startswith("shift+")
+    return KEY_CODES.get(lowered[6:] if shifted else lowered), shifted
 
 
 def input_event(kind, code, value):
@@ -42,10 +57,19 @@ def input_event(kind, code, value):
     return struct.pack("<qqHHi", seconds, int((now - seconds) * 1e6), kind, code, value)
 
 
-def press(fifo, code):
-    for value in (1, 0):  # press, release
-        fifo.write(input_event(1, code, value) + input_event(0, 0, 0))
-        fifo.flush()
+def send(fifo, code, value):
+    fifo.write(input_event(1, code, value) + input_event(0, 0, 0))
+    fifo.flush()
+
+
+def press(fifo, name):
+    code, shifted = key_codes(name)
+    if shifted:
+        send(fifo, SHIFT, 1)
+    send(fifo, code, 1)
+    send(fifo, code, 0)
+    if shifted:
+        send(fifo, SHIFT, 0)
 
 
 def rgb565_rows(data, width, height):
@@ -70,7 +94,7 @@ def write_png(path, data, width, height):
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--keys", default="", help="space-separated key names, e.g. 'c c enter esc'")
+    parser.add_argument("--keys", default="", help="space-separated key names, e.g. 'c c enter esc' or 'shift+9'")
     parser.add_argument("--png", help="save the framebuffer here")
     parser.add_argument("--settle", type=float, default=1.0, help="seconds before the first key (default 1)")
     parser.add_argument("--delay", type=float, default=0.2, help="seconds between keys (default 0.2)")
@@ -83,7 +107,7 @@ def parse_args(argv):
         args.command = args.command[1:]
     if not args.command:
         parser.error("missing app command after --")
-    unknown = [name for name in args.keys.split() if name.lower() not in KEY_CODES]
+    unknown = [name for name in args.keys.split() if key_codes(name)[0] is None]
     if unknown:
         parser.error(f"unknown key names: {unknown}; known: {sorted(KEY_CODES)}")
     return args
@@ -106,7 +130,7 @@ def main(argv=None):
                 last = index == len(names) - 1
                 if last and name.lower() == "esc" and args.png:
                     write_png(args.png, Path(fb_path).read_bytes(), width, height)
-                press(fifo, KEY_CODES[name.lower()])
+                press(fifo, name)
                 time.sleep(args.delay)
             if args.png and not (names and names[-1].lower() == "esc"):
                 write_png(args.png, Path(fb_path).read_bytes(), width, height)
