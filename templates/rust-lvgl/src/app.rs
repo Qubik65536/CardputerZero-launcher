@@ -18,7 +18,7 @@ use crate::home::HomeScreen;
 use crate::lvgl::{self, color_hex, App, Key, KeyState, Obj, LV_OPA_COVER};
 use crate::motion::MotionScreen;
 use crate::repl::ReplScreen;
-use crate::ui::{Action, Screen, BACKGROUND_COLOR};
+use crate::ui::{set_theme, Action, Screen, BACKGROUND_COLOR, LANGUAGE_COLOR};
 use crate::widgets::WidgetsScreen;
 
 /// Which screen is showing.
@@ -80,6 +80,8 @@ impl HelloCardputer {
 
     /// Build the UI on `content`, the 320x150 area below the top bar.
     pub fn new(content: Obj) -> &'static HelloCardputer {
+        // Set the theme first, so every screen and widget is created with it.
+        set_theme(LANGUAGE_COLOR);
         content.set_style_bg_color(color_hex(BACKGROUND_COLOR), 0);
         content.set_style_bg_opa(LV_OPA_COVER, 0);
         let app: &'static HelloCardputer = Box::leak(Box::new(HelloCardputer {

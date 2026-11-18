@@ -12,8 +12,9 @@
 //!    so LVGL's documentation and examples translate one to one.
 //! 3. The safe-ish layer: `Obj` (any `lv_obj_t *`) with the common functions
 //!    and style setters as methods, one type per widget (`Label`, `Slider`, ...)
-//!    that derefs to `Obj`, `Font`, `Timer`, `Group`, callbacks that carry a
-//!    `&'static` reference to your data, and `run`/`quit`/... for cp0_app.
+//!    that derefs to `Obj`, `Font`, `Timer`, `Group`, `Indev`, `Event`, the
+//!    default theme, callbacks that carry your data, and `run`/`quit`/... for
+//!    cp0_app.
 //!
 //! How to call more of LVGL
 //! ------------------------
@@ -84,6 +85,22 @@ pub mod ffi {
     pub struct lv_font_t {
         _opaque: [u8; 0],
     }
+    #[repr(C)]
+    pub struct lv_indev_t {
+        _opaque: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct lv_display_t {
+        _opaque: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct lv_theme_t {
+        _opaque: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct lv_obj_class_t {
+        _opaque: [u8; 0],
+    }
 
     /// misc/lv_color.h: 24-bit color, blue first.
     #[repr(C)]
@@ -99,16 +116,17 @@ pub mod ffi {
     pub type lv_state_t = u32; // C enum
     pub type lv_obj_flag_t = u32; // C enum
     pub type lv_align_t = c_int; // C enum
-    pub type lv_text_align_t = c_int; // C enum
     pub type lv_event_code_t = c_int; // C enum
     pub type lv_color_format_t = c_int; // C enum
-    pub type lv_roller_mode_t = c_int; // C enum
+    pub type lv_flex_flow_t = c_int; // C enum
+    pub type lv_flex_align_t = c_int; // C enum
+    pub type lv_indev_type_t = c_int; // C enum
+    pub type lv_palette_t = c_int; // C enum
     pub type lv_anim_enable_t = bool;
     pub type lv_result_t = c_int; // C enum
 
     pub type lv_event_cb_t = extern "C" fn(event: *mut lv_event_t);
     pub type lv_timer_cb_t = extern "C" fn(timer: *mut lv_timer_t);
-    pub type lv_group_focus_cb_t = extern "C" fn(group: *mut lv_group_t);
 
     /// cp0_app.h: one key event.
     #[repr(C)]
@@ -132,7 +150,6 @@ pub mod ffi {
         pub fn cp0_app_quit();
         pub fn cp0_app_set_title(title: *const c_char);
         pub fn cp0_app_set_text_input(enabled: c_int);
-        pub fn cp0_app_set_keypad_intercept(enabled: c_int);
         pub fn cp0_app_file_path(name: *const c_char, out: *mut c_char, size: usize) -> usize;
 
         // core/lv_obj.h, core/lv_obj_pos.h, core/lv_obj_style.h
@@ -141,9 +158,8 @@ pub mod ffi {
         pub fn lv_obj_remove_flag(obj: *mut lv_obj_t, flag: lv_obj_flag_t);
         pub fn lv_obj_has_flag(obj: *const lv_obj_t, flag: lv_obj_flag_t) -> bool;
         pub fn lv_obj_add_state(obj: *mut lv_obj_t, state: lv_state_t);
-        pub fn lv_obj_remove_state(obj: *mut lv_obj_t, state: lv_state_t);
-        pub fn lv_obj_set_state(obj: *mut lv_obj_t, state: lv_state_t, enabled: bool);
         pub fn lv_obj_has_state(obj: *const lv_obj_t, state: lv_state_t) -> bool;
+        pub fn lv_obj_check_type(obj: *const lv_obj_t, class_p: *const lv_obj_class_t) -> bool;
         pub fn lv_obj_set_pos(obj: *mut lv_obj_t, x: i32, y: i32);
         pub fn lv_obj_set_size(obj: *mut lv_obj_t, width: i32, height: i32);
         pub fn lv_obj_set_width(obj: *mut lv_obj_t, width: i32);
@@ -151,24 +167,30 @@ pub mod ffi {
         pub fn lv_obj_center(obj: *mut lv_obj_t);
         pub fn lv_obj_invalidate(obj: *const lv_obj_t) -> lv_result_t;
         pub fn lv_obj_remove_style_all(obj: *mut lv_obj_t);
+        pub fn lv_obj_refresh_ext_draw_size(obj: *mut lv_obj_t);
+
+        // layouts/flex/lv_flex.h
+        pub fn lv_obj_set_flex_flow(obj: *mut lv_obj_t, flow: lv_flex_flow_t);
+        pub fn lv_obj_set_flex_align(
+            obj: *mut lv_obj_t,
+            main_place: lv_flex_align_t,
+            cross_place: lv_flex_align_t,
+            track_cross_place: lv_flex_align_t,
+        );
+        pub fn lv_obj_set_flex_grow(obj: *mut lv_obj_t, grow: u8);
 
         // core/lv_obj_style_gen.h
         pub fn lv_obj_set_style_bg_color(obj: *mut lv_obj_t, value: lv_color_t, selector: lv_style_selector_t);
         pub fn lv_obj_set_style_bg_opa(obj: *mut lv_obj_t, value: lv_opa_t, selector: lv_style_selector_t);
-        pub fn lv_obj_set_style_border_color(obj: *mut lv_obj_t, value: lv_color_t, selector: lv_style_selector_t);
         pub fn lv_obj_set_style_border_width(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
-        pub fn lv_obj_set_style_outline_color(obj: *mut lv_obj_t, value: lv_color_t, selector: lv_style_selector_t);
-        pub fn lv_obj_set_style_outline_width(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
-        pub fn lv_obj_set_style_outline_pad(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
         pub fn lv_obj_set_style_pad_top(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
         pub fn lv_obj_set_style_pad_bottom(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
         pub fn lv_obj_set_style_pad_left(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
         pub fn lv_obj_set_style_pad_right(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
+        pub fn lv_obj_set_style_pad_row(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
+        pub fn lv_obj_set_style_pad_column(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
         pub fn lv_obj_set_style_text_color(obj: *mut lv_obj_t, value: lv_color_t, selector: lv_style_selector_t);
-        pub fn lv_obj_set_style_text_opa(obj: *mut lv_obj_t, value: lv_opa_t, selector: lv_style_selector_t);
         pub fn lv_obj_set_style_text_font(obj: *mut lv_obj_t, value: *const lv_font_t, selector: lv_style_selector_t);
-        pub fn lv_obj_set_style_text_align(obj: *mut lv_obj_t, value: lv_text_align_t, selector: lv_style_selector_t);
-        pub fn lv_obj_set_style_anim_duration(obj: *mut lv_obj_t, value: u32, selector: lv_style_selector_t);
 
         // core/lv_obj_event.h, misc/lv_event.h
         pub fn lv_obj_add_event_cb(
@@ -177,27 +199,48 @@ pub mod ffi {
             filter: lv_event_code_t,
             user_data: *mut c_void,
         ) -> *mut c_void;
-        pub fn lv_obj_send_event(obj: *mut lv_obj_t, code: lv_event_code_t, param: *mut c_void) -> lv_result_t;
         pub fn lv_event_get_user_data(event: *mut lv_event_t) -> *mut c_void;
+        pub fn lv_event_get_code(event: *mut lv_event_t) -> lv_event_code_t;
+        pub fn lv_event_get_target_obj(event: *mut lv_event_t) -> *mut lv_obj_t;
+        pub fn lv_event_get_key(event: *mut lv_event_t) -> u32;
+        pub fn lv_event_stop_processing(event: *mut lv_event_t);
 
         // core/lv_group.h
         pub fn lv_group_create() -> *mut lv_group_t;
         pub fn lv_group_delete(group: *mut lv_group_t);
         pub fn lv_group_add_obj(group: *mut lv_group_t, obj: *mut lv_obj_t);
+        pub fn lv_group_remove_obj(obj: *mut lv_obj_t);
+        pub fn lv_obj_get_group(obj: *const lv_obj_t) -> *mut lv_group_t;
         pub fn lv_group_focus_obj(obj: *mut lv_obj_t);
         pub fn lv_group_focus_next(group: *mut lv_group_t);
         pub fn lv_group_focus_prev(group: *mut lv_group_t);
         pub fn lv_group_get_focused(group: *const lv_group_t) -> *mut lv_obj_t;
         pub fn lv_group_set_wrap(group: *mut lv_group_t, enabled: bool);
-        pub fn lv_group_set_focus_cb(group: *mut lv_group_t, focus_cb: lv_group_focus_cb_t);
-        pub fn lv_group_set_user_data(group: *mut lv_group_t, user_data: *mut c_void);
-        pub fn lv_group_get_user_data(group: *const lv_group_t) -> *mut c_void;
+
+        // indev/lv_indev.h
+        pub fn lv_indev_get_next(indev: *mut lv_indev_t) -> *mut lv_indev_t;
+        pub fn lv_indev_active() -> *mut lv_indev_t;
+        pub fn lv_indev_get_type(indev: *const lv_indev_t) -> lv_indev_type_t;
+        pub fn lv_indev_get_group(indev: *const lv_indev_t) -> *mut lv_group_t;
+        pub fn lv_indev_set_group(indev: *mut lv_indev_t, group: *mut lv_group_t);
+        pub fn lv_indev_wait_release(indev: *mut lv_indev_t);
+
+        // display/lv_display.h, themes/default/lv_theme_default.h, misc/lv_palette.h
+        pub fn lv_display_get_default() -> *mut lv_display_t;
+        pub fn lv_display_set_theme(disp: *mut lv_display_t, theme: *mut lv_theme_t);
+        pub fn lv_theme_default_init(
+            disp: *mut lv_display_t,
+            color_primary: lv_color_t,
+            color_secondary: lv_color_t,
+            dark: bool,
+            font: *const lv_font_t,
+        ) -> *mut lv_theme_t;
+        pub fn lv_palette_main(palette: lv_palette_t) -> lv_color_t;
 
         // misc/lv_timer.h
         pub fn lv_timer_create(timer_cb: lv_timer_cb_t, period: u32, user_data: *mut c_void) -> *mut lv_timer_t;
         pub fn lv_timer_pause(timer: *mut lv_timer_t);
         pub fn lv_timer_resume(timer: *mut lv_timer_t);
-        pub fn lv_timer_reset(timer: *mut lv_timer_t);
         pub fn lv_timer_get_user_data(timer: *mut lv_timer_t) -> *mut c_void;
 
         // font/lv_font.h; the fonts are enabled in the runtime's lvgl_config.h
@@ -218,19 +261,29 @@ pub mod ffi {
         pub fn lv_textarea_set_one_line(obj: *mut lv_obj_t, enabled: bool);
         pub fn lv_textarea_set_placeholder_text(obj: *mut lv_obj_t, text: *const c_char);
         pub fn lv_textarea_set_max_length(obj: *mut lv_obj_t, num: u32);
-        pub fn lv_textarea_add_text(obj: *mut lv_obj_t, text: *const c_char);
-        pub fn lv_textarea_delete_char(obj: *mut lv_obj_t);
         pub fn lv_textarea_get_text(obj: *const lv_obj_t) -> *const c_char;
         pub fn lv_slider_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
         pub fn lv_slider_set_range(obj: *mut lv_obj_t, min: i32, max: i32);
         pub fn lv_slider_set_value(obj: *mut lv_obj_t, value: i32, anim: lv_anim_enable_t);
         pub fn lv_slider_get_value(obj: *const lv_obj_t) -> i32;
-        pub fn lv_roller_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
-        pub fn lv_roller_set_options(obj: *mut lv_obj_t, options: *const c_char, mode: lv_roller_mode_t);
-        pub fn lv_roller_set_visible_row_count(obj: *mut lv_obj_t, row_count: u32);
-        pub fn lv_roller_set_selected(obj: *mut lv_obj_t, selected: u32, anim: lv_anim_enable_t);
-        pub fn lv_roller_get_selected(obj: *const lv_obj_t) -> u32;
+        pub fn lv_spinbox_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
+        pub fn lv_spinbox_set_range(obj: *mut lv_obj_t, min_value: i32, max_value: i32);
+        pub fn lv_spinbox_set_digit_format(obj: *mut lv_obj_t, digit_count: u32, sep_pos: u32);
+        pub fn lv_spinbox_set_value(obj: *mut lv_obj_t, value: i32);
+        pub fn lv_spinbox_get_value(obj: *mut lv_obj_t) -> i32;
+        pub fn lv_spinbox_increment(obj: *mut lv_obj_t);
+        pub fn lv_spinbox_decrement(obj: *mut lv_obj_t);
+        pub fn lv_dropdown_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
+        pub fn lv_dropdown_set_options(obj: *mut lv_obj_t, options: *const c_char);
+        pub fn lv_dropdown_set_selected(obj: *mut lv_obj_t, sel_opt: u32);
+        pub fn lv_dropdown_get_selected(obj: *const lv_obj_t) -> u32;
+        pub fn lv_dropdown_get_selected_str(obj: *const lv_obj_t, buf: *mut c_char, buf_size: u32);
+        pub fn lv_dropdown_is_open(obj: *mut lv_obj_t) -> bool;
+        pub fn lv_dropdown_close(obj: *mut lv_obj_t);
+        pub static lv_dropdown_class: lv_obj_class_t;
         pub fn lv_switch_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
+        pub fn lv_checkbox_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
+        pub fn lv_checkbox_set_text(obj: *mut lv_obj_t, text: *const c_char);
     }
 }
 
@@ -244,19 +297,10 @@ use ffi::*;
 pub const LV_OBJ_FLAG_HIDDEN: lv_obj_flag_t = 1 << 0;
 pub const LV_OBJ_FLAG_CLICKABLE: lv_obj_flag_t = 1 << 1;
 pub const LV_OBJ_FLAG_SCROLLABLE: lv_obj_flag_t = 1 << 4;
+pub const LV_OBJ_FLAG_SCROLL_ON_FOCUS: lv_obj_flag_t = 1 << 10; // scroll the object into view when focused
 
 // lv_state_t (core/lv_obj_style.h); also usable as style selectors
 pub const LV_STATE_CHECKED: lv_state_t = 1 << 2;
-pub const LV_STATE_FOCUSED: lv_state_t = 1 << 3;
-pub const LV_STATE_PRESSED: lv_state_t = 1 << 7;
-
-// lv_part_t (core/lv_obj_style.h); 0 is the main part. Combine with states:
-// LV_PART_KNOB | LV_STATE_FOCUSED
-pub const LV_PART_INDICATOR: lv_style_selector_t = 0x020000;
-pub const LV_PART_KNOB: lv_style_selector_t = 0x030000;
-pub const LV_PART_SELECTED: lv_style_selector_t = 0x040000;
-pub const LV_PART_CURSOR: lv_style_selector_t = 0x060000;
-pub const LV_PART_TEXTAREA_PLACEHOLDER: lv_style_selector_t = 0x080000; // LV_PART_CUSTOM_FIRST
 
 // lv_opa_t (misc/lv_color.h)
 pub const LV_OPA_TRANSP: lv_opa_t = 0;
@@ -266,13 +310,44 @@ pub const LV_OPA_COVER: lv_opa_t = 255;
 pub const LV_ALIGN_TOP_MID: lv_align_t = 2;
 pub const LV_ALIGN_TOP_RIGHT: lv_align_t = 3;
 
-// lv_text_align_t (misc/lv_text.h)
-pub const LV_TEXT_ALIGN_CENTER: lv_text_align_t = 2;
+// Sizes (misc/lv_area.h): LV_SIZE_CONTENT and LV_PCT are macros in C.
+/// Width or height that fits the children (`LV_SIZE_CONTENT`).
+pub const LV_SIZE_CONTENT: i32 = (1 << 29) | ((1 << 29) - 1);
+
+/// `percent` % of the parent's size (`LV_PCT`), for `set_size`/`set_width`.
+pub const fn lv_pct(percent: i32) -> i32 {
+    const MAX: i32 = ((1 << 29) - 2) / 2; // LV_PCT_POS_MAX
+    let stored = if percent < 0 {
+        MAX - if percent > -MAX { percent } else { -MAX }
+    } else if percent < MAX {
+        percent
+    } else {
+        MAX
+    };
+    stored | 1 << 29
+}
 
 // lv_event_code_t (misc/lv_event.h)
+pub const LV_EVENT_ALL: lv_event_code_t = 0;
+pub const LV_EVENT_SHORT_CLICKED: lv_event_code_t = 4;
+pub const LV_EVENT_LONG_PRESSED_REPEAT: lv_event_code_t = 9; // repeatedly while held down
 pub const LV_EVENT_CLICKED: lv_event_code_t = 10;
+pub const LV_EVENT_KEY: lv_event_code_t = 17;
+pub const LV_EVENT_FOCUSED: lv_event_code_t = 19;
+pub const LV_EVENT_DEFOCUSED: lv_event_code_t = 20;
 pub const LV_EVENT_VALUE_CHANGED: lv_event_code_t = 35;
+pub const LV_EVENT_READY: lv_event_code_t = 38; // e.g. ENTER in a one-line text area
 pub const LV_EVENT_DELETE: lv_event_code_t = 42; // sent before the object's children are deleted
+/// Flag: `LV_EVENT_KEY | LV_EVENT_PREPROCESS` runs the handler before the
+/// widget's own one, which `Event::stop_processing` can then skip.
+pub const LV_EVENT_PREPROCESS: lv_event_code_t = 0x8000;
+
+// lv_key_t (core/lv_group.h): `Event::key` for navigation keys; typing keys
+// give their character.
+pub const LV_KEY_UP: u32 = 17;
+pub const LV_KEY_DOWN: u32 = 18;
+pub const LV_KEY_RIGHT: u32 = 19;
+pub const LV_KEY_LEFT: u32 = 20;
 
 // lv_anim_enable_t (misc/lv_anim.h)
 pub const LV_ANIM_OFF: lv_anim_enable_t = false;
@@ -280,8 +355,17 @@ pub const LV_ANIM_OFF: lv_anim_enable_t = false;
 // lv_color_format_t (misc/lv_color.h)
 const LV_COLOR_FORMAT_RGB565: lv_color_format_t = 0x12;
 
-// lv_roller_mode_t (widgets/roller/lv_roller.h)
-pub const LV_ROLLER_MODE_NORMAL: lv_roller_mode_t = 0;
+// lv_flex_flow_t, lv_flex_align_t (layouts/flex/lv_flex.h)
+pub const LV_FLEX_FLOW_ROW: lv_flex_flow_t = 0;
+pub const LV_FLEX_FLOW_COLUMN: lv_flex_flow_t = 1;
+pub const LV_FLEX_ALIGN_START: lv_flex_align_t = 0;
+pub const LV_FLEX_ALIGN_CENTER: lv_flex_align_t = 2;
+
+// lv_indev_type_t (indev/lv_indev.h)
+pub const LV_INDEV_TYPE_KEYPAD: lv_indev_type_t = 2;
+
+// lv_palette_t (misc/lv_palette.h)
+pub const LV_PALETTE_BLUE: lv_palette_t = 5;
 
 /// Linux key codes (linux/input-event-codes.h), as cp0_app reports them.
 pub mod keys {
@@ -309,7 +393,7 @@ pub mod keys {
 // ---------------------------------------------------------------------------
 
 /// `&str` to a C string. LVGL copies the strings it keeps (label text,
-/// placeholders, roller options, image paths), so a temporary is enough.
+/// placeholders, dropdown options, image paths), so a temporary is enough.
 /// A NUL inside the text ends it early.
 fn c_string(text: &str) -> CString {
     let end = text.find('\0').unwrap_or(text.len());
@@ -319,6 +403,11 @@ fn c_string(text: &str) -> CString {
 /// 0xRRGGBB to an LVGL color (`lv_color_hex`, done in Rust so it can be a const).
 pub const fn color_hex(hex: u32) -> lv_color_t {
     lv_color_t { blue: (hex & 0xFF) as u8, green: ((hex >> 8) & 0xFF) as u8, red: ((hex >> 16) & 0xFF) as u8 }
+}
+
+/// The main shade of one of LVGL's palette colors (`LV_PALETTE_BLUE`, ...).
+pub fn palette_main(palette: lv_palette_t) -> lv_color_t {
+    unsafe { lv_palette_main(palette) }
 }
 
 /// A font compiled into the runtime.
@@ -341,6 +430,19 @@ impl Font {
     /// Width in pixels of `letter` when `next` follows it (kerning); `next` 0 = nothing.
     pub fn glyph_width(self, letter: char, next: char) -> i32 {
         i32::from(unsafe { lv_font_get_glyph_width(self.0, letter as u32, next as u32) })
+    }
+}
+
+/// Make LVGL's default theme the theme of the display (`lv_theme_default_init`
+/// and `lv_display_set_theme`): `primary` is the accent color, `secondary` the
+/// second one, `dark` picks dark mode, `font` the default text font. Objects
+/// created afterwards take their look from it; calling it again restyles the
+/// existing ones.
+pub fn set_default_theme(primary: lv_color_t, secondary: lv_color_t, dark: bool, font: Font) {
+    unsafe {
+        let display = lv_display_get_default();
+        let theme = lv_theme_default_init(display, primary, secondary, dark, font.0);
+        lv_display_set_theme(display, theme);
     }
 }
 
@@ -371,8 +473,23 @@ extern "C" fn timer_trampoline<T: 'static>(timer: *mut lv_timer_t) {
     unsafe { Callback::<T>::call(lv_timer_get_user_data(timer)) }
 }
 
-extern "C" fn focus_trampoline<T: 'static>(group: *mut lv_group_t) {
-    unsafe { Callback::<T>::call(lv_group_get_user_data(group)) }
+/// The event an `Obj::on_event_with` handler is running for. Only valid
+/// during the call, so handlers get it by reference.
+pub struct Event(NonNull<lv_event_t>);
+
+/// A handler that also gets the event, with data of any `Copy` type (a widget,
+/// a group, a `&'static` screen, ...).
+struct EventHandler<D: Copy + 'static> {
+    data: D,
+    function: fn(D, &Event),
+}
+
+extern "C" fn event_handler_trampoline<D: Copy + 'static>(event: *mut lv_event_t) {
+    let Some(event) = NonNull::new(event) else {
+        return;
+    };
+    let handler = unsafe { &*(lv_event_get_user_data(event.as_ptr()) as *const EventHandler<D>) };
+    (handler.function)(handler.data, &Event(event));
 }
 
 /// Any LVGL object (`lv_obj_t *`): the functions every widget has. LVGL owns
@@ -411,14 +528,6 @@ impl Obj {
         unsafe { lv_obj_add_state(self.as_ptr(), state) }
     }
 
-    pub fn remove_state(self, state: lv_state_t) {
-        unsafe { lv_obj_remove_state(self.as_ptr(), state) }
-    }
-
-    pub fn set_state(self, state: lv_state_t, enabled: bool) {
-        unsafe { lv_obj_set_state(self.as_ptr(), state, enabled) }
-    }
-
     pub fn has_state(self, state: lv_state_t) -> bool {
         unsafe { lv_obj_has_state(self.as_ptr(), state) }
     }
@@ -427,6 +536,7 @@ impl Obj {
         unsafe { lv_obj_set_pos(self.as_ptr(), x, y) }
     }
 
+    /// Sizes in pixels, `lv_pct(..)` or `LV_SIZE_CONTENT`.
     pub fn set_size(self, width: i32, height: i32) {
         unsafe { lv_obj_set_size(self.as_ptr(), width, height) }
     }
@@ -453,9 +563,39 @@ impl Obj {
         unsafe { lv_obj_remove_style_all(self.as_ptr()) }
     }
 
+    /// Recompute how far the object draws outside its area (outlines, shadows).
+    pub fn refresh_ext_draw_size(self) {
+        unsafe { lv_obj_refresh_ext_draw_size(self.as_ptr()) }
+    }
+
+    /// Lay the children out in a row or column (`LV_FLEX_FLOW_*`).
+    pub fn set_flex_flow(self, flow: lv_flex_flow_t) {
+        unsafe { lv_obj_set_flex_flow(self.as_ptr(), flow) }
+    }
+
+    /// Where flex puts the children along the flow, across it, and the tracks (`LV_FLEX_ALIGN_*`).
+    pub fn set_flex_align(self, main: lv_flex_align_t, cross: lv_flex_align_t, track_cross: lv_flex_align_t) {
+        unsafe { lv_obj_set_flex_align(self.as_ptr(), main, cross, track_cross) }
+    }
+
+    /// In a flex parent: take this share of the free space (0 = only its own size).
+    pub fn set_flex_grow(self, grow: u8) {
+        unsafe { lv_obj_set_flex_grow(self.as_ptr(), grow) }
+    }
+
     /// Give this object the keyboard focus in its group (`lv_group_focus_obj`).
     pub fn focus(self) {
         unsafe { lv_group_focus_obj(self.as_ptr()) }
+    }
+
+    /// The focus group the object is in (`lv_obj_get_group`).
+    pub fn group(self) -> Option<Group> {
+        NonNull::new(unsafe { lv_obj_get_group(self.as_ptr()) }).map(Group)
+    }
+
+    /// Take the object out of its focus group (`lv_group_remove_obj`).
+    pub fn remove_from_group(self) {
+        unsafe { lv_group_remove_obj(self.as_ptr()) }
     }
 
     /// Call `function(data)` when the object gets `code` (`lv_obj_add_event_cb`).
@@ -464,9 +604,17 @@ impl Obj {
         unsafe { lv_obj_add_event_cb(self.as_ptr(), event_trampoline::<T>, code, user_data) };
     }
 
-    /// Send an event without parameter, as LVGL would (`lv_obj_send_event`).
-    pub fn send_event(self, code: lv_event_code_t) {
-        unsafe { lv_obj_send_event(self.as_ptr(), code, ptr::null_mut()) };
+    /// Call `function(data, event)` when the object gets `code`; for handlers
+    /// that look at the event (its code, key or target, or to stop it). `code`
+    /// may be `LV_EVENT_ALL` or include `LV_EVENT_PREPROCESS`.
+    pub fn on_event_with<D: Copy + 'static>(self, code: lv_event_code_t, data: D, function: fn(D, &Event)) {
+        let user_data = Box::leak(Box::new(EventHandler { data, function })) as *mut EventHandler<D> as *mut c_void;
+        unsafe { lv_obj_add_event_cb(self.as_ptr(), event_handler_trampoline::<D>, code, user_data) };
+    }
+
+    /// `on_event_with` for a handler that needs only the event.
+    pub fn on_event_fn(self, code: lv_event_code_t, function: fn(&Event)) {
+        self.on_event_with(code, function, |function, event| function(event));
     }
 
     // Style properties (core/lv_obj_style_gen.h). `selector` is a part and/or
@@ -480,34 +628,16 @@ impl Obj {
         unsafe { lv_obj_set_style_bg_opa(self.as_ptr(), opa, selector) }
     }
 
-    pub fn set_style_border_color(self, color: lv_color_t, selector: lv_style_selector_t) {
-        unsafe { lv_obj_set_style_border_color(self.as_ptr(), color, selector) }
-    }
-
     pub fn set_style_border_width(self, width: i32, selector: lv_style_selector_t) {
         unsafe { lv_obj_set_style_border_width(self.as_ptr(), width, selector) }
     }
 
-    pub fn set_style_outline_color(self, color: lv_color_t, selector: lv_style_selector_t) {
-        unsafe { lv_obj_set_style_outline_color(self.as_ptr(), color, selector) }
-    }
-
-    pub fn set_style_outline_width(self, width: i32, selector: lv_style_selector_t) {
-        unsafe { lv_obj_set_style_outline_width(self.as_ptr(), width, selector) }
-    }
-
-    pub fn set_style_outline_pad(self, pad: i32, selector: lv_style_selector_t) {
-        unsafe { lv_obj_set_style_outline_pad(self.as_ptr(), pad, selector) }
-    }
-
-    pub fn set_style_pad_right(self, pad: i32, selector: lv_style_selector_t) {
-        unsafe { lv_obj_set_style_pad_right(self.as_ptr(), pad, selector) }
-    }
-
     /// `lv_obj_set_style_pad_hor` is a `static inline` C function: left and right padding.
     pub fn set_style_pad_hor(self, pad: i32, selector: lv_style_selector_t) {
-        unsafe { lv_obj_set_style_pad_left(self.as_ptr(), pad, selector) };
-        self.set_style_pad_right(pad, selector);
+        unsafe {
+            lv_obj_set_style_pad_left(self.as_ptr(), pad, selector);
+            lv_obj_set_style_pad_right(self.as_ptr(), pad, selector);
+        }
     }
 
     /// `lv_obj_set_style_pad_ver` (`static inline` in C): top and bottom padding.
@@ -524,24 +654,45 @@ impl Obj {
         self.set_style_pad_ver(pad, selector);
     }
 
-    pub fn set_style_text_color(self, color: lv_color_t, selector: lv_style_selector_t) {
-        unsafe { lv_obj_set_style_text_color(self.as_ptr(), color, selector) }
+    /// The gap between the rows of a flex column (or wrapped rows).
+    pub fn set_style_pad_row(self, pad: i32, selector: lv_style_selector_t) {
+        unsafe { lv_obj_set_style_pad_row(self.as_ptr(), pad, selector) }
     }
 
-    pub fn set_style_text_opa(self, opa: lv_opa_t, selector: lv_style_selector_t) {
-        unsafe { lv_obj_set_style_text_opa(self.as_ptr(), opa, selector) }
+    /// The gap between the children of a flex row.
+    pub fn set_style_pad_column(self, pad: i32, selector: lv_style_selector_t) {
+        unsafe { lv_obj_set_style_pad_column(self.as_ptr(), pad, selector) }
+    }
+
+    pub fn set_style_text_color(self, color: lv_color_t, selector: lv_style_selector_t) {
+        unsafe { lv_obj_set_style_text_color(self.as_ptr(), color, selector) }
     }
 
     pub fn set_style_text_font(self, font: Font, selector: lv_style_selector_t) {
         unsafe { lv_obj_set_style_text_font(self.as_ptr(), font.0, selector) }
     }
+}
 
-    pub fn set_style_text_align(self, align: lv_text_align_t, selector: lv_style_selector_t) {
-        unsafe { lv_obj_set_style_text_align(self.as_ptr(), align, selector) }
+impl Event {
+    /// `LV_EVENT_CLICKED`, `LV_EVENT_KEY`, ... (without `LV_EVENT_PREPROCESS`).
+    pub fn code(&self) -> lv_event_code_t {
+        unsafe { lv_event_get_code(self.0.as_ptr()) }
     }
 
-    pub fn set_style_anim_duration(self, milliseconds: u32, selector: lv_style_selector_t) {
-        unsafe { lv_obj_set_style_anim_duration(self.as_ptr(), milliseconds, selector) }
+    /// For `LV_EVENT_KEY`: `LV_KEY_UP`, ... or the character the key types; 0 otherwise.
+    pub fn key(&self) -> u32 {
+        unsafe { lv_event_get_key(self.0.as_ptr()) }
+    }
+
+    /// The object the event was sent to.
+    pub fn target(&self) -> Obj {
+        Obj::from_ptr(unsafe { lv_event_get_target_obj(self.0.as_ptr()) })
+    }
+
+    /// Run no more handlers for this event: in a preprocess handler, not even
+    /// the widget's own one.
+    pub fn stop_processing(&self) {
+        unsafe { lv_event_stop_processing(self.0.as_ptr()) }
     }
 }
 
@@ -606,14 +757,24 @@ widget!(
     lv_slider_create
 );
 widget!(
-    /// A list of options showing the selected one (`lv_roller`).
-    Roller,
-    lv_roller_create
+    /// A number with a digit format (`lv_spinbox`, a text area underneath).
+    Spinbox,
+    lv_spinbox_create
+);
+widget!(
+    /// A button that opens a list of options (`lv_dropdown`).
+    Dropdown,
+    lv_dropdown_create
 );
 widget!(
     /// An on/off toggle (`lv_switch`); "on" is `LV_STATE_CHECKED`.
     Switch,
     lv_switch_create
+);
+widget!(
+    /// A tick box with a text (`lv_checkbox`); ticked is `LV_STATE_CHECKED`.
+    Checkbox,
+    lv_checkbox_create
 );
 
 impl Label {
@@ -654,16 +815,6 @@ impl Textarea {
         unsafe { lv_textarea_set_max_length(self.as_ptr(), characters) }
     }
 
-    /// Insert text at the cursor.
-    pub fn add_text(self, text: &str) {
-        unsafe { lv_textarea_add_text(self.as_ptr(), c_string(text).as_ptr()) }
-    }
-
-    /// Delete the character before the cursor (backspace).
-    pub fn delete_char(self) {
-        unsafe { lv_textarea_delete_char(self.as_ptr()) }
-    }
-
     pub fn text(self) -> String {
         let text = unsafe { lv_textarea_get_text(self.as_ptr()) };
         if text.is_null() {
@@ -687,22 +838,75 @@ impl Slider {
     }
 }
 
-impl Roller {
+impl Spinbox {
+    pub fn set_range(self, min: i32, max: i32) {
+        unsafe { lv_spinbox_set_range(self.as_ptr(), min, max) }
+    }
+
+    /// `digits` digits, with a decimal point after `separator` of them (0 = none).
+    pub fn set_digit_format(self, digits: u32, separator: u32) {
+        unsafe { lv_spinbox_set_digit_format(self.as_ptr(), digits, separator) }
+    }
+
+    /// Set the value; the spinbox sends LV_EVENT_VALUE_CHANGED.
+    pub fn set_value(self, value: i32) {
+        unsafe { lv_spinbox_set_value(self.as_ptr(), value) }
+    }
+
+    pub fn value(self) -> i32 {
+        unsafe { lv_spinbox_get_value(self.as_ptr()) }
+    }
+
+    /// One step up (and LV_EVENT_VALUE_CHANGED).
+    pub fn increment(self) {
+        unsafe { lv_spinbox_increment(self.as_ptr()) }
+    }
+
+    /// One step down (and LV_EVENT_VALUE_CHANGED).
+    pub fn decrement(self) {
+        unsafe { lv_spinbox_decrement(self.as_ptr()) }
+    }
+}
+
+impl Dropdown {
+    /// The object as a dropdown, if it is one (`lv_obj_check_type`).
+    pub fn cast(obj: Obj) -> Option<Dropdown> {
+        unsafe { lv_obj_check_type(obj.as_ptr(), &lv_dropdown_class) }.then_some(Dropdown(obj))
+    }
+
     /// `options`: one option per line ("Rust\nZig\nOCaml").
-    pub fn set_options(self, options: &str, mode: lv_roller_mode_t) {
-        unsafe { lv_roller_set_options(self.as_ptr(), c_string(options).as_ptr(), mode) }
+    pub fn set_options(self, options: &str) {
+        unsafe { lv_dropdown_set_options(self.as_ptr(), c_string(options).as_ptr()) }
     }
 
-    pub fn set_visible_row_count(self, rows: u32) {
-        unsafe { lv_roller_set_visible_row_count(self.as_ptr(), rows) }
-    }
-
-    pub fn set_selected(self, index: u32, anim: lv_anim_enable_t) {
-        unsafe { lv_roller_set_selected(self.as_ptr(), index, anim) }
+    pub fn set_selected(self, index: u32) {
+        unsafe { lv_dropdown_set_selected(self.as_ptr(), index) }
     }
 
     pub fn selected(self) -> u32 {
-        unsafe { lv_roller_get_selected(self.as_ptr()) }
+        unsafe { lv_dropdown_get_selected(self.as_ptr()) }
+    }
+
+    /// The selected option's text.
+    pub fn selected_str(self) -> String {
+        let mut buffer = [0 as c_char; 64];
+        unsafe { lv_dropdown_get_selected_str(self.as_ptr(), buffer.as_mut_ptr(), buffer.len() as u32) };
+        unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_string_lossy().into_owned()
+    }
+
+    /// Whether the list of options is showing.
+    pub fn is_open(self) -> bool {
+        unsafe { lv_dropdown_is_open(self.as_ptr()) }
+    }
+
+    pub fn close(self) {
+        unsafe { lv_dropdown_close(self.as_ptr()) }
+    }
+}
+
+impl Checkbox {
+    pub fn set_text(self, text: &str) {
+        unsafe { lv_checkbox_set_text(self.as_ptr(), c_string(text).as_ptr()) }
     }
 }
 
@@ -725,15 +929,10 @@ impl Timer {
     pub fn resume(self) {
         unsafe { lv_timer_resume(self.0.as_ptr()) }
     }
-
-    /// Start the period over: the next call comes a full period from now.
-    pub fn reset(self) {
-        unsafe { lv_timer_reset(self.0.as_ptr()) }
-    }
 }
 
 /// A focus group (`lv_group_t`): the objects keyboard focus moves between.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Group(NonNull<lv_group_t>);
 
 impl Group {
@@ -746,6 +945,7 @@ impl Group {
         unsafe { lv_group_delete(self.0.as_ptr()) }
     }
 
+    /// Add `obj` (moving it out of any other group); focus moves in the order of these calls.
     pub fn add_obj(self, obj: Obj) {
         unsafe { lv_group_add_obj(self.0.as_ptr(), obj.as_ptr()) }
     }
@@ -766,15 +966,50 @@ impl Group {
     pub fn focused(self) -> Option<Obj> {
         NonNull::new(unsafe { lv_group_get_focused(self.0.as_ptr()) }).map(Obj)
     }
+}
 
-    /// Call `function(data)` whenever the focus moves (`lv_group_set_focus_cb`;
-    /// uses the group's user data).
-    pub fn on_focus<T: 'static>(self, data: &'static T, function: fn(&'static T)) {
-        let user_data = Callback::leak(data, function);
-        unsafe {
-            lv_group_set_user_data(self.0.as_ptr(), user_data);
-            lv_group_set_focus_cb(self.0.as_ptr(), focus_trampoline::<T>);
-        }
+fn group_ptr(group: Option<Group>) -> *mut lv_group_t {
+    group.map_or(ptr::null_mut(), |group| group.0.as_ptr())
+}
+
+/// An input device (`lv_indev_t`): the keypad, a mouse, ... A keypad sends its
+/// keys to the focused object of its group.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Indev(NonNull<lv_indev_t>);
+
+impl Indev {
+    fn after(indev: Option<Indev>) -> Option<Indev> {
+        let previous = indev.map_or(ptr::null_mut(), |indev| indev.0.as_ptr());
+        NonNull::new(unsafe { lv_indev_get_next(previous) }).map(Indev)
+    }
+
+    /// Every input device (`lv_indev_get_next`).
+    pub fn all() -> impl Iterator<Item = Indev> {
+        std::iter::successors(Indev::after(None), |indev| Indev::after(Some(*indev)))
+    }
+
+    /// The device whose input LVGL is handling right now, if any (`lv_indev_active`).
+    pub fn active() -> Option<Indev> {
+        NonNull::new(unsafe { lv_indev_active() }).map(Indev)
+    }
+
+    /// `LV_INDEV_TYPE_KEYPAD`, ... (`lv_indev_get_type`).
+    pub fn indev_type(self) -> lv_indev_type_t {
+        unsafe { lv_indev_get_type(self.0.as_ptr()) }
+    }
+
+    /// The group a keypad sends its keys to.
+    pub fn group(self) -> Option<Group> {
+        NonNull::new(unsafe { lv_indev_get_group(self.0.as_ptr()) }).map(Group)
+    }
+
+    pub fn set_group(self, group: Option<Group>) {
+        unsafe { lv_indev_set_group(self.0.as_ptr(), group_ptr(group)) }
+    }
+
+    /// Ignore the key or button that is down until it is released.
+    pub fn wait_release(self) {
+        unsafe { lv_indev_wait_release(self.0.as_ptr()) }
     }
 }
 
@@ -856,12 +1091,6 @@ pub fn set_title(title: &str) {
 /// also act as up/down/left/right, like in the launcher.
 pub fn set_text_input(enabled: bool) {
     unsafe { cp0_app_set_text_input(c_int::from(enabled)) }
-}
-
-/// `true`: keys reach only `App::on_key`, not LVGL's focused widget. Use it when
-/// the app moves the focus and changes widgets itself.
-pub fn set_keypad_intercept(enabled: bool) {
-    unsafe { cp0_app_set_keypad_intercept(c_int::from(enabled)) }
 }
 
 /// Path of a file installed with the app (`APPLaunch/share/images/<name>`, ...)

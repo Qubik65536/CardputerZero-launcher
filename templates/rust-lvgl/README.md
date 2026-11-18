@@ -11,9 +11,10 @@ No crates and no bindgen: `src/lvgl.rs` declares the C functions by hand.
 It greets you with "Hello, Rust!" over a wallpaper and opens four demos:
 **Colors** (a spinning RGB triangle and a color wheel drawn on an
 `lv_canvas`), **Motion** (a glowing ball to push around, with live physics
-numbers), **REPL** (a terminal-style calculator) and **Widgets** (real LVGL
-widgets: text field, button, slider, counter, roller, switch, driven by the
-keyboard). F/X choose, ENTER opens, TAB goes to the next demo, ESC goes back
+numbers), **REPL** (a terminal-style calculator) and **Widgets** (a form of
+stock LVGL widgets in the default theme: text area, buttons, slider, spinbox,
+a dropdown that recolors the whole app, switch and checkbox, driven by LVGL's
+keypad and focus group). F/X choose, ENTER opens, TAB goes to the next demo, ESC goes back
 (and quits from home). Keep what you need, delete the rest. It is the same app
 as the C++ template (`templates/cpp-lvgl`), file for file.
 
@@ -105,6 +106,10 @@ them; the state they change sits in `Cell`/`RefCell`. A callback is a method:
 ```rust
 self.button.on_event(LV_EVENT_CLICKED, self, Self::button_clicked);
 ```
+
+Handlers that need the event itself (its code, key or target) use
+`on_event_with(code, data, function)`, or `on_event_fn(code, function)` without
+data; `widgets.rs` has examples.
 
 Widgets are `Copy` handles (`Label`, `Slider`, ...) that deref to `Obj`, so
 `label.set_pos(8, 0)` and `label.set_text("Hi")` both work. All `unsafe` code

@@ -7,8 +7,8 @@
 use std::cell::Cell;
 
 use crate::lvgl::{
-    color_hex, keys, Font, Key, Label, Obj, Timer, LV_ALIGN_TOP_MID, LV_ALIGN_TOP_RIGHT, LV_OBJ_FLAG_CLICKABLE,
-    LV_OBJ_FLAG_HIDDEN, LV_OBJ_FLAG_SCROLLABLE, LV_OPA_COVER,
+    self, color_hex, keys, palette_main, Font, Key, Label, Obj, Timer, LV_ALIGN_TOP_MID, LV_ALIGN_TOP_RIGHT,
+    LV_OBJ_FLAG_CLICKABLE, LV_OBJ_FLAG_HIDDEN, LV_OBJ_FLAG_SCROLLABLE, LV_OPA_COVER, LV_PALETTE_BLUE,
 };
 
 /// The language this template is written in, and GitHub's color for it.
@@ -86,6 +86,13 @@ pub fn make_panel(parent: Obj, x: i32, y: i32, width: i32, height: i32, color: u
     panel.set_style_bg_opa(opa, 0);
     panel.remove_flag(LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
     panel
+}
+
+/// Makes LVGL's default theme (dark, Montserrat 14) the app's theme, with
+/// `primary` as its accent color. Widgets created afterwards take their look from
+/// it; calling it again restyles the existing ones (the Widgets demo's Color row).
+pub fn set_theme(primary: u32) {
+    lvgl::set_default_theme(color_hex(primary), palette_main(LV_PALETTE_BLUE), true, Font::montserrat_14());
 }
 
 /// One line of key help, centered at the bottom of a screen.
