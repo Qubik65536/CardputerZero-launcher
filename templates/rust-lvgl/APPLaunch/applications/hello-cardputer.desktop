@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Hello Cardputer
+Exec=/usr/share/APPLaunch/bin/hello-cardputer
+Terminal=false
+Icon=share/images/hello-cardputer_100.png
+Type=Application

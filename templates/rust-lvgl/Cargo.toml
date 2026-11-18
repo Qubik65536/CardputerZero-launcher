@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: 2026 M5Stack Technology CO LTD
+# SPDX-License-Identifier: MIT
+
+[package]
+name = "hello-cardputer"
+version = "0.1.0"
+edition = "2021"
+description = "Hello Cardputer: a CardputerZero app with LVGL"
+publish = false
+build = "build.rs"
+
+# No dependencies: LVGL and cp0_lvgl come from the LVGL runtime
+# (scripts/lvgl-runtime), declared by hand in src/lvgl.rs and linked by build.rs.
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
