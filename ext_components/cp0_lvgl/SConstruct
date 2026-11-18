@@ -78,7 +78,11 @@ if "CONFIG_CP0_LVGL_COMPONENT_ENABLED" in os.environ or "CONFIG_SIGSLOT_COMPONEN
     if 'CONFIG_V9_5_LV_USE_SDL' in os.environ:
         DEFINITIONS += ['-DHAL_PLATFORM_SDL=1']
         DEFINITIONS += pkg_config_cflags('sdl2')
-        REQUIREMENTS += pkg_config_ldflags('sdl2')
+        # pkg-config may return -L / -Wl,-framework flags (e.g. Homebrew on macOS);
+        # only -l entries are valid library requirements, the rest are linker flags.
+        sdl2_ldflags = pkg_config_ldflags('sdl2')
+        REQUIREMENTS += [flag for flag in sdl2_ldflags if flag.startswith('-l')]
+        LDFLAGS += [flag for flag in sdl2_ldflags if not flag.startswith('-l')]
         platform_srcs = Glob('src/sdl/*.c*')
         platform_srcs += [
             File('src/cp0/cp0_camera_viewport.cpp'),
