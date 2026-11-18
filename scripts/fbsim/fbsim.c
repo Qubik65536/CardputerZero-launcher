@@ -25,26 +25,10 @@
  *        (scripts/fbsim/build.sh does this)
  */
 
-#include <SDL.h>
+#include "fbsim_protocol.h"
 
-#include <errno.h>
-#include <fcntl.h>
 #include <signal.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/stat.h>
-#include <sys/time.h>
 #include <sys/wait.h>
-#include <unistd.h>
-
-enum {
-    EV_SYN = 0x00,
-    EV_KEY = 0x01,
-    SYN_REPORT = 0,
-    INPUT_EVENT_SIZE = 24, /* struct input_event on 64-bit Linux */
-};
 
 struct options {
     int width;
@@ -53,133 +37,17 @@ struct options {
     char **command;
 };
 
-/* SDL keycode -> Linux input-event-codes.h KEY_* value (0 = not forwarded). */
-static uint16_t linux_key_code(SDL_Keycode key)
+static void forward_key(const struct fbsim_session *session, const SDL_KeyboardEvent *key)
 {
-    if (key >= SDLK_a && key <= SDLK_z) {
-        static const uint16_t letters[26] = {
-            30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38, 50, /* a..m */
-            49, 24, 25, 16, 19, 31, 20, 22, 47, 17, 45, 21, 44, /* n..z */
-        };
-        return letters[key - SDLK_a];
-    }
-    if (key >= SDLK_1 && key <= SDLK_9) return (uint16_t)(2 + (key - SDLK_1));
-    switch (key) {
-    case SDLK_0: return 11;
-    case SDLK_ESCAPE: return 1;
-    case SDLK_MINUS: return 12;
-    case SDLK_EQUALS: return 13;
-    case SDLK_BACKSPACE: return 14;
-    case SDLK_TAB: return 15;
-    case SDLK_LEFTBRACKET: return 26;
-    case SDLK_RIGHTBRACKET: return 27;
-    case SDLK_RETURN: return 28;
-    case SDLK_LCTRL: return 29;
-    case SDLK_SEMICOLON: return 39;
-    case SDLK_QUOTE: return 40;
-    case SDLK_BACKQUOTE: return 41;
-    case SDLK_LSHIFT: return 42;
-    case SDLK_BACKSLASH: return 43;
-    case SDLK_COMMA: return 51;
-    case SDLK_PERIOD: return 52;
-    case SDLK_SLASH: return 53;
-    case SDLK_RSHIFT: return 54;
-    case SDLK_LALT: return 56;
-    case SDLK_SPACE: return 57;
-    case SDLK_F1: return 59;
-    case SDLK_F2: return 60;
-    case SDLK_F3: return 61;
-    case SDLK_F4: return 62;
-    case SDLK_F5: return 63;
-    case SDLK_F6: return 64;
-    case SDLK_F7: return 65;
-    case SDLK_F8: return 66;
-    case SDLK_F9: return 67;
-    case SDLK_F10: return 68;
-    case SDLK_RCTRL: return 97;
-    case SDLK_RALT: return 100;
-    case SDLK_HOME: return 102;
-    case SDLK_UP: return 103;
-    case SDLK_PAGEUP: return 104;
-    case SDLK_LEFT: return 105;
-    case SDLK_RIGHT: return 106;
-    case SDLK_END: return 107;
-    case SDLK_DOWN: return 108;
-    case SDLK_PAGEDOWN: return 109;
-    case SDLK_DELETE: return 111;
-    default: return 0;
-    }
-}
-
-static void put_u16(unsigned char *out, uint16_t value)
-{
-    out[0] = (unsigned char)(value & 0xff);
-    out[1] = (unsigned char)(value >> 8);
-}
-
-static void put_u64(unsigned char *out, uint64_t value)
-{
-    for (int i = 0; i < 8; ++i) out[i] = (unsigned char)(value >> (8 * i));
-}
-
-static void write_input_event(int fd, uint16_t type, uint16_t code, int32_t value)
-{
-    unsigned char record[INPUT_EVENT_SIZE] = {0};
-    struct timeval now;
-    gettimeofday(&now, NULL);
-    put_u64(record, (uint64_t)now.tv_sec);
-    put_u64(record + 8, (uint64_t)now.tv_usec);
-    put_u16(record + 16, type);
-    put_u16(record + 18, code);
-    put_u16(record + 20, (uint16_t)((uint32_t)value & 0xffff));
-    put_u16(record + 22, (uint16_t)((uint32_t)value >> 16));
-    /* The FIFO is opened O_RDWR, so a slow reader only fills the pipe buffer. */
-    if (write(fd, record, sizeof(record)) < 0 && errno != EAGAIN)
-        perror("fbsim: write input event");
-}
-
-static void forward_key(int input_fd, const SDL_KeyboardEvent *key)
-{
-    uint16_t code = linux_key_code(key->keysym.sym);
-    if (code == 0) return;
     int32_t value = key->type == SDL_KEYUP ? 0 : (key->repeat ? 2 : 1);
-    write_input_event(input_fd, EV_KEY, code, value);
-    write_input_event(input_fd, EV_SYN, SYN_REPORT, 0);
+    fbsim_send_key(session, fbsim_linux_key_code(key->keysym.sym), value);
 }
 
-static int create_framebuffer_file(const char *path, size_t size)
+static pid_t spawn_app(char **command, const struct fbsim_session *session)
 {
-    int fd = open(path, O_RDWR | O_CREAT | O_TRUNC, 0600);
-    if (fd < 0 || ftruncate(fd, (off_t)size) != 0) {
-        perror("fbsim: framebuffer file");
-        return -1;
-    }
-    return fd;
-}
-
-static int create_input_fifo(const char *path)
-{
-    unlink(path);
-    if (mkfifo(path, 0600) != 0) {
-        perror("fbsim: mkfifo");
-        return -1;
-    }
-    /* O_RDWR keeps the FIFO open without a reader, so the app may (re)open it. */
-    int fd = open(path, O_RDWR | O_NONBLOCK);
-    if (fd < 0) perror("fbsim: open fifo");
-    return fd;
-}
-
-static pid_t spawn_app(char **command, const char *fb_path, const char *input_path,
-                       int width, int height)
-{
-    char size[32];
-    snprintf(size, sizeof(size), "%dx%d", width, height);
     pid_t pid = fork();
     if (pid == 0) {
-        setenv("CARDPUTER_FB", fb_path, 1);
-        setenv("CARDPUTER_FB_SIZE", size, 1);
-        setenv("CARDPUTER_INPUT", input_path, 1);
+        fbsim_session_export(session);
         execvp(command[0], command);
         perror("fbsim: exec");
         _exit(127);
@@ -189,12 +57,11 @@ static pid_t spawn_app(char **command, const char *fb_path, const char *input_pa
 }
 
 /* Read the framebuffer file and copy it into the RGB565 streaming texture. */
-static void present_frame(int fb_fd, SDL_Renderer *renderer, SDL_Texture *texture,
-                          unsigned char *pixels, size_t size, int width)
+static void present_frame(const struct fbsim_session *session, SDL_Renderer *renderer,
+                          SDL_Texture *texture, unsigned char *pixels)
 {
-    ssize_t got = pread(fb_fd, pixels, size, 0);
-    if (got != (ssize_t)size) return;
-    SDL_UpdateTexture(texture, NULL, pixels, width * 2);
+    if (fbsim_read_frame(session, pixels) != 0) return;
+    SDL_UpdateTexture(texture, NULL, pixels, session->width * 2);
     SDL_RenderClear(renderer);
     SDL_RenderCopy(renderer, texture, NULL, NULL);
     SDL_RenderPresent(renderer);
@@ -232,21 +99,10 @@ static int parse_options(int argc, char **argv, struct options *options)
 
 static int run(const struct options *options)
 {
-    char dir_template[] = "/tmp/fbsim.XXXXXX";
-    char *dir = mkdtemp(dir_template);
-    if (!dir) {
-        perror("fbsim: mkdtemp");
-        return 1;
-    }
-    char fb_path[256], input_path[256];
-    snprintf(fb_path, sizeof(fb_path), "%s/fb", dir);
-    snprintf(input_path, sizeof(input_path), "%s/input", dir);
-
-    const size_t size = (size_t)options->width * (size_t)options->height * 2;
-    int fb_fd = create_framebuffer_file(fb_path, size);
-    int input_fd = create_input_fifo(input_path);
-    unsigned char *pixels = malloc(size);
-    if (fb_fd < 0 || input_fd < 0 || !pixels) return 1;
+    struct fbsim_session session;
+    if (fbsim_session_open(&session, options->width, options->height) != 0) return 1;
+    unsigned char *pixels = malloc(session.size);
+    if (!pixels) return 1;
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         fprintf(stderr, "fbsim: SDL_Init: %s\n", SDL_GetError());
@@ -264,7 +120,7 @@ static int run(const struct options *options)
         return 1;
     }
 
-    pid_t app = spawn_app(options->command, fb_path, input_path, options->width, options->height);
+    pid_t app = spawn_app(options->command, &session);
     if (app < 0) return 1;
 
     int status = 0;
@@ -277,11 +133,11 @@ static int run(const struct options *options)
                 waitpid(app, &status, 0);
                 running = 0;
             } else if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
-                forward_key(input_fd, &event.key);
+                forward_key(&session, &event.key);
             }
         }
         if (running && waitpid(app, &status, WNOHANG) == app) running = 0;
-        present_frame(fb_fd, renderer, texture, pixels, size, options->width);
+        present_frame(&session, renderer, texture, pixels);
         SDL_Delay(16);
     }
 
@@ -290,11 +146,7 @@ static int run(const struct options *options)
     SDL_DestroyWindow(window);
     SDL_Quit();
     free(pixels);
-    close(fb_fd);
-    close(input_fd);
-    unlink(fb_path);
-    unlink(input_path);
-    rmdir(dir);
+    fbsim_session_close(&session);
     return app_exit_status(status);
 }
 
