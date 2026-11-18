@@ -32,7 +32,7 @@ calls) and `input.zig` (`std.posix`).
 ## Project tour
 
 The app is described in [framebuffer apps](framebuffer-apps.md#the-template-app):
-a home screen and three demos.
+a home screen and four demos.
 
 | File | Contents |
 | --- | --- |
@@ -40,10 +40,11 @@ a home screen and three demos.
 | `src/ui.zig` | `language`, `language_color` and the palette; `drawHeader`, `drawHint`, `drawShadowedText`; `Action` |
 | `src/home.zig` | The home screen: wallpaper (`@embedFile("wallpaper.rgb565")`), greeting, menu (`demos`) |
 | `src/colors.zig` | RGB triangle (barycentric shading) and HSV wheel |
-| `src/motion.zig` | The ball: momentum, bounces, trail, sparks |
+| `src/motion.zig` | The ball: momentum, bounces, trail, sparks; the physics readout and speed graph |
 | `src/repl.zig` | The terminal-style screen: scrollback, input line, history, `help`/`vars`/`clear` |
+| `src/widgets.zig` | The widget form: `Widget` rows, focus, `change` (Z/C) and `activate` (ENTER), one `draw*` function per widget |
 | `src/calc.zig` | The calculator language (`Calculator.run(line)` returns `.ok` or `.err` text) and its `test` blocks |
-| `src/display.zig` | `Display.open(io, env)`, `clear`, `fillRect`, `setPixel`, `blendPixel`, `shadeRect`, `fillCircle`, `drawImage`, `drawText`, `Display.textWidth`, `present`, `close`; `rgb(r, g, b)`, `blend(under, over, alpha)`, `black`, `white`, `char_width`, `char_height` |
+| `src/display.zig` | `Display.open(io, env)`, `clear`, `fillRect`, `setPixel`, `blendPixel`, `shadeRect`, `strokeRect`, `drawLine`, `fillCircle`, `drawImage`, `drawText`, `Display.textWidth`, `present`, `close`; `rgb(r, g, b)`, `blend(under, over, alpha)`, `black`, `white`, `char_width`, `char_height` |
 | `src/input.zig` | `Keyboard.open(env)`, `poll() !?KeyEvent`, `close(io)`; `KeyEvent{ code, state }`, `isDown()`; `keys.*`; `direction(code) ?Direction`; `Typist.init(env)`, `charFor(event) ?u8` |
 | `src/font.zig` | The 8x16 glyph table |
 | `src/wallpaper.rgb565` | The home screen's 320x170 picture |
@@ -72,7 +73,13 @@ per tick. For speed that doesn't depend on the frame rate, read a clock
 (`std.Io.Clock.awake.now(io)`) and pass the difference to your update.
 
 **Text input.** Pass every event to `typist.charFor` (see `main`), then use the
-character in the screen that wants text, as `Repl.handleKey` does.
+character in the screen that wants text, as `Repl.handleKey` and the Widgets
+text field do.
+
+**Forms and widgets.** `widgets.zig` shows the pattern: a list of rows, one
+focused index, and per-widget functions to change, activate and draw. Add a
+row by adding a `Widget` value, its label in `rows`, and prongs in `change`,
+`activate` and `draw`.
 
 **Images.** Convert with `scripts/png_to_rgb565.py art/player.png src/player.rgb565 --alpha`
 (keep the file under `src/` so `@embedFile` can reach it) and draw with
@@ -91,7 +98,7 @@ SCons projects download one to `SDK/github_source/static_lib_v0.0.7`).
 ## Testing
 
 ```bash
-zig build test                                     # the `test` blocks (calc.zig has some)
+zig build test                                     # the `test` blocks (calc.zig and motion.zig have some)
 zig build && python3 ../../scripts/fbsim/headless.py \
     --keys "3 6 shift+8 7 enter" --png /tmp/shot.png -- ./zig-out/bin/pixel-pet
 ```

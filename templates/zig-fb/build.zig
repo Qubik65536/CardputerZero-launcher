@@ -5,7 +5,7 @@
 //! zig build sim          run it in the fbsim window (build scripts/fbsim first)
 //! zig build device       static aarch64 Linux binary for the CardputerZero
 //!                        (zig-out/device/hello-cardputer)
-//! zig build test         unit tests (the calc language in src/calc.zig)
+//! zig build test         unit tests (the calc language, the Motion readout)
 
 const std = @import("std");
 
@@ -43,7 +43,7 @@ pub fn build(b: *std.Build) void {
 
     const tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/calc.zig"),
+            .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
         }),

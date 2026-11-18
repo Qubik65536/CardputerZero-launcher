@@ -22,9 +22,10 @@ pub const demos = [_]Demo{
     .{ .name = "Colors", .description = "color triangle and wheel" },
     .{ .name = "Motion", .description = "steer a glowing ball" },
     .{ .name = "REPL", .description = "a tiny calculator language" },
+    .{ .name = "Widgets", .description = "text field, slider, more" },
 };
 
-const menu_top = 78;
+const menu_top = 68;
 const row_height = 20;
 
 pub const Home = struct {
@@ -41,6 +42,7 @@ pub const Home = struct {
             keys.digit_1 => return .{ .open = 0 },
             keys.digit_2 => return .{ .open = 1 },
             keys.digit_3 => return .{ .open = 2 },
+            keys.digit_4 => return .{ .open = 3 },
             // Quit on a short ESC press. (Holding ESC for 3 s makes the launcher kill the app.)
             keys.esc => return .quit,
             else => {},
@@ -52,8 +54,8 @@ pub const Home = struct {
         const width: i32 = @intCast(display.width);
         const height: i32 = @intCast(display.height);
         display.drawImage(0, 0, wallpaper);
-        ui.drawShadowedText(display, 16, 12, "Hello, " ++ ui.language ++ "!", ui.language_color, 2);
-        ui.drawShadowedText(display, 18, 50, "Your CardputerZero app", ui.muted, 1);
+        ui.drawShadowedText(display, 16, 8, "Hello, " ++ ui.language ++ "!", ui.language_color, 2);
+        ui.drawShadowedText(display, 18, 44, "Your CardputerZero app", ui.muted, 1);
 
         display.shadeRect(8, menu_top - 4, width - 16, row_height * demos.len + 6, 150);
         for (demos, 0..) |demo, index| {

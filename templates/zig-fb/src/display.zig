@@ -205,6 +205,38 @@ pub const Display = struct {
         }
     }
 
+    /// Draw a 1-pixel line from (x0, y0) to (x1, y1) (Bresenham's algorithm).
+    pub fn drawLine(self: *Display, x0: i32, y0: i32, x1: i32, y1: i32, color: u16) void {
+        const dx: i32 = @intCast(@abs(x1 - x0));
+        const dy: i32 = -@as(i32, @intCast(@abs(y1 - y0)));
+        const step_x: i32 = if (x0 < x1) 1 else -1;
+        const step_y: i32 = if (y0 < y1) 1 else -1;
+        var x = x0;
+        var y = y0;
+        var err = dx + dy;
+        while (true) {
+            self.setPixel(x, y, color);
+            if (x == x1 and y == y1) break;
+            const doubled = 2 * err;
+            if (doubled >= dy) {
+                err += dy;
+                x += step_x;
+            }
+            if (doubled <= dx) {
+                err += dx;
+                y += step_y;
+            }
+        }
+    }
+
+    /// Draw the 1-pixel outline of a rectangle.
+    pub fn strokeRect(self: *Display, x: i32, y: i32, width: i32, height: i32, color: u16) void {
+        self.fillRect(x, y, width, 1, color);
+        self.fillRect(x, y + height - 1, width, 1, color);
+        self.fillRect(x, y, 1, height, color);
+        self.fillRect(x + width - 1, y, 1, height, color);
+    }
+
     /// Draw an image made by scripts/png_to_rgb565.py (with or without --alpha),
     /// e.g. `display.drawImage(0, 0, @embedFile("wallpaper.rgb565"))`.
     pub fn drawImage(self: *Display, x: i32, y: i32, image: []const u8) void {

@@ -27,6 +27,7 @@ pub const keys = struct {
     pub const digit_1: u16 = 2;
     pub const digit_2: u16 = 3;
     pub const digit_3: u16 = 4;
+    pub const digit_4: u16 = 5;
     pub const enter: u16 = 28;
     pub const space: u16 = 57;
     pub const up: u16 = 103;

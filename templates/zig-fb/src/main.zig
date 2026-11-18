@@ -3,9 +3,10 @@
 
 //! Hello Cardputer: a CardputerZero app in Zig.
 //!
-//! The home screen greets you and opens three demos: color rendering (`colors.zig`),
-//! an interactive animation (`motion.zig`) and a terminal-style REPL (`repl.zig`, running
-//! the little language in `calc.zig`). TAB moves to the next demo, ESC goes back home,
+//! The home screen greets you and opens four demos: color rendering (`colors.zig`),
+//! an interactive animation with live physics numbers (`motion.zig`), a terminal-style
+//! REPL (`repl.zig`, running the little language in `calc.zig`) and a form of widgets
+//! (`widgets.zig`). TAB moves to the next demo, ESC goes back home,
 //! ESC at home quits. Keep what you need and delete the rest.
 
 const std = @import("std");
@@ -16,6 +17,7 @@ const input = @import("input.zig");
 const motion_mod = @import("motion.zig");
 const repl_mod = @import("repl.zig");
 const ui = @import("ui.zig");
+const widgets_mod = @import("widgets.zig");
 
 const Allocator = std.mem.Allocator;
 const Display = display_mod.Display;
@@ -24,9 +26,9 @@ const Action = ui.Action;
 const frame_time = std.Io.Duration.fromMilliseconds(16); // ~60 frames per second
 
 /// Which screen is showing. The demos are in home.demos order.
-const Screen = enum { home, colors, motion, repl };
+const Screen = enum { home, colors, motion, repl, widgets };
 
-const demo_screens = [_]Screen{ .colors, .motion, .repl };
+const demo_screens = [_]Screen{ .colors, .motion, .repl, .widgets };
 
 const App = struct {
     screen: Screen = .home,
@@ -34,6 +36,7 @@ const App = struct {
     colors: colors_mod.Colors = .{},
     motion: motion_mod.Motion = .{},
     repl: repl_mod.Repl = undefined,
+    widgets: widgets_mod.Widgets = .{},
     running: bool = true,
 
     fn init(self: *App, gpa: Allocator) void {
@@ -64,6 +67,7 @@ const App = struct {
             .colors => self.colors.handleKey(event),
             .motion => self.motion.handleKey(event),
             .repl => try self.repl.handleKey(event, typed),
+            .widgets => self.widgets.handleKey(event, typed),
         };
         self.apply(action);
     }
@@ -79,6 +83,11 @@ const App = struct {
                 self.motion.tick();
                 return true;
             },
+            .widgets => {
+                const was_animated = self.widgets.animated();
+                self.widgets.tick();
+                return was_animated; // one more frame to draw the button released
+            },
             .home, .repl => return false,
         }
     }
@@ -89,6 +98,7 @@ const App = struct {
             .colors => self.colors.draw(display),
             .motion => self.motion.draw(display),
             .repl => self.repl.draw(display),
+            .widgets => self.widgets.draw(display),
         }
     }
 };
@@ -121,4 +131,9 @@ pub fn main(init: std.process.Init) !void {
         }
         try io.sleep(frame_time, .awake);
     }
+}
+
+test {
+    _ = @import("calc.zig");
+    _ = motion_mod;
 }
