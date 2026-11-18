@@ -7,6 +7,33 @@ page explains the shared model; the [Rust](rust.md), [Zig](zig.md) and
 [OCaml](ocaml.md) pages cover each language's toolchain and API. Any language
 that can open files works the same way.
 
+## The template app
+
+All three templates (and, built with LVGL widgets, the C++ one) are the same
+app, so you can compare languages line by line:
+
+| Screen | What it shows | Keys |
+| --- | --- | --- |
+| **Home** | The wallpaper, "Hello, *Language*!" in GitHub's color for the language, and a menu | F/X choose, ENTER or 1/2/3 open, ESC quits |
+| **Colors** | A spinning RGB triangle and an HSV color wheel, computed pixel by pixel | Z/C turn, SPACE pause, ENTER switch |
+| **Motion** | A glowing ball with momentum, a trail and sparks when it bounces | F/X/Z/C push, ENTER color, SPACE stop |
+| **REPL** | A terminal-style calculator: `x = 6 * 7`, `ans`, `abs` `min` `max`, `help`, `vars`, `clear` | type, ENTER runs, UP/DOWN history |
+
+TAB jumps to the next demo and ESC goes back home. The code is split the same
+way in every language:
+
+| Module | Contents |
+| --- | --- |
+| `main` | Which screen shows, key dispatch, the main loop |
+| `ui` | The language name and color, the palette, header and hint drawing, the `Action` a screen returns (stay, home, next, open, quit) |
+| `home`, `colors`, `motion`, `repl` | One screen each: state, `handle_key`, `draw` (and `tick` for animation) |
+| `calc` | The REPL's language: tokenizer, recursive-descent parser, evaluator. No screen code, with unit tests |
+| `display`, `input`, `font` | The framebuffer canvas, the keyboard, the 8x16 font |
+
+To make it your own, keep the screens you need and delete the others: remove
+the module, its entry in `main` and its line in the home menu. A new screen is
+a new module with the same three functions.
+
 ## The model: two files
 
 | | Device | Desktop (fbsim / headless.py) |
@@ -15,10 +42,11 @@ that can open files works the same way.
 | **Keyboard**: read 24-byte `input_event` records | `$LV_LINUX_KEYBOARD_DEVICE` | FIFO named by `CARDPUTER_INPUT` |
 
 Each template has a `display` module (an in-memory RGB565 canvas with `clear`,
-`fill_rect`, `draw_text` and `present`) and an `input` module (non-blocking
-`poll` returning key events, plus `direction()` for F/X/Z/C and arrows). Your
-code lives in `main`: a loop that handles keys, redraws when something
-changed, and sleeps ~16 ms.
+`fill_rect`, `fill_circle`, `blend`/`shade_rect`, `draw_image`, `draw_text`
+and `present`) and an `input` module (non-blocking `poll` returning key
+events, `direction()` for F/X/Z/C and arrows, and a `Typist` that turns key
+events into typed characters). `main` runs a loop that handles keys, redraws
+when something changed or moves, and sleeps ~16 ms.
 
 ```
 loop:
@@ -37,19 +65,28 @@ little-endian in memory. Use the templates' `rgb(r, g, b)` helper with ordinary
 
 ### Text
 
-The templates draw ASCII with an embedded 8x8 font (Unscii, public domain):
-`draw_text(x, y, "text", color, scale)`; scale 1 is 8 px tall, scale 2 is
-16 px (good for titles). At scale 1 the screen fits 40 x 21 characters. For
-other fonts, render them to a bitmap at build time, or use the C++/LVGL
-template, which has FreeType and many sizes.
+The templates draw ASCII with an embedded 8x16 font (Unscii 16, public
+domain): `draw_text(x, y, "text", color, scale)`; scale 1 is 8x16 px per
+character, scale 2 is 16x32 (titles). At scale 1 the screen fits 40 x 10
+characters, which is what the REPL demo uses. For other fonts, render them to
+a bitmap at build time, or use the C++/LVGL template, which has FreeType and
+many sizes.
 
 ### Keys
 
 Act on `is_down()` events (press or auto-repeat). Use `direction(code)` for
 movement so both F/X/Z/C (device) and arrows (desktop) work. **Quit on ESC.**
 The launcher force-kills an app after ESC is held for 3 s, so a short press
-should exit cleanly. Symbols (`!`, `@`, `(`, ...) arrive with special codes,
-listed in the [device reference](device-reference.md#key-codes).
+should exit cleanly.
+
+For text, feed **every** event (releases too, so it sees Shift) to the
+`Typist` and use the character it returns, as the REPL demo does. The device
+keyboard sends its symbols (`!`, `@`, `(`, ...) with special codes, listed in
+the [device reference](device-reference.md#key-codes), and the Typist knows
+them. It uses that device layout unless `CARDPUTER_INPUT` is set (fbsim, the
+emulator, headless.py), where keys follow a US desktop keyboard. A USB
+keyboard plugged into the device is read with the device layout, so its
+punctuation keys type the wrong symbols.
 
 ### Images
 
@@ -60,8 +97,10 @@ python3 scripts/png_to_rgb565.py art/player.png assets/player.rgb565 --alpha
 ```
 
 The file holds `u16 width, u16 height`, the pixels, and with `--alpha` one
-alpha byte per pixel. Copying it into the canvas takes a few lines; see the
-"Images" section of your language's guide.
+alpha byte per pixel; `draw_image(x, y, image)` draws it, blending by the
+alpha. The home screen's wallpaper is an example: a 320x170 picture without
+alpha, embedded into the binary (see your language's guide for how). To use
+your own, convert a 320x170 PNG over the template's `wallpaper.rgb565`.
 
 ## Running on your computer
 
@@ -84,11 +123,16 @@ screen, use the [emulator](emulator.md): `cardputer-zero-emu --fb -- <command>`.
 ```bash
 python3 scripts/fbsim/headless.py --keys "c c f enter" --png shot.png -- ./my-app
 python3 scripts/fbsim/headless.py --keys "esc" --expect-exit 0 -- ./my-app
+python3 scripts/fbsim/headless.py --keys "3 2 shift+8 3 enter" --png repl.png -- ./my-app
 ```
 
 `headless.py` presses keys from a script, saves a PNG of the screen and checks
 the exit status, which makes it handy in CI, over SSH, or inside a container.
-It needs only Python.
+It needs only Python. Key names are letters, digits, `esc` `backspace` `tab`
+`enter` `space` `up` `down` `left` `right` and the punctuation keys (`minus`
+`equal` `comma` `period` `slash` `semicolon` `apostrophe` `grave` `backslash`
+`leftbracket` `rightbracket`); `shift+<name>` holds Shift, so `shift+8` types
+`*` and `shift+9` types `(` (US layout).
 
 ## Running on the device
 

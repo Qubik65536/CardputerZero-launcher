@@ -37,7 +37,7 @@ python3 scripts/new_app.py rust-fb "Pixel Pet"          # -> projects/PixelPet/
 cd projects/PixelPet
 
 # 3. Run it on your computer
-../../scripts/fbsim/fbsim -- cargo run                  # F/X/Z/C or arrows move, ESC quits
+../../scripts/fbsim/fbsim -- cargo run                  # F/X choose, ENTER open, ESC back/quit
 #    ...or inside the device emulator (see emulator.md)
 ../../projects/CardputerZero-Emulator/build/cardputer-zero-emu --fb -- cargo run
 
