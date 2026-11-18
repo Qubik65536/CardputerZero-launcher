@@ -1,70 +1,101 @@
 // SPDX-FileCopyrightText: 2026 M5Stack Technology CO LTD
 // SPDX-License-Identifier: MIT
 
-//! Hello Cardputer: a minimal CardputerZero app in Zig.
+//! Hello Cardputer: a CardputerZero app in Zig.
 //!
-//! Move the square with F/X/Z/C (or the arrow keys), press ENTER to change its
-//! color, ESC to quit. Start editing in `App.handleKey` and `App.draw`.
+//! The home screen greets you and opens three demos: color rendering (`colors.zig`),
+//! an interactive animation (`motion.zig`) and a terminal-style REPL (`repl.zig`, running
+//! the little language in `calc.zig`). TAB moves to the next demo, ESC goes back home,
+//! ESC at home quits. Keep what you need and delete the rest.
 
 const std = @import("std");
+const colors_mod = @import("colors.zig");
 const display_mod = @import("display.zig");
+const home_mod = @import("home.zig");
 const input = @import("input.zig");
+const motion_mod = @import("motion.zig");
+const repl_mod = @import("repl.zig");
+const ui = @import("ui.zig");
 
+const Allocator = std.mem.Allocator;
 const Display = display_mod.Display;
-const rgb = display_mod.rgb;
+const Action = ui.Action;
 
 const frame_time = std.Io.Duration.fromMilliseconds(16); // ~60 frames per second
-const background = rgb(16, 20, 24);
-const title_bar = rgb(30, 36, 44);
-const muted = rgb(150, 160, 170);
-const colors = [_]u16{ rgb(79, 195, 247), rgb(129, 199, 132), rgb(255, 183, 77), rgb(240, 98, 146) };
-const square = 24;
+
+/// Which screen is showing. The demos are in home.demos order.
+const Screen = enum { home, colors, motion, repl };
+
+const demo_screens = [_]Screen{ .colors, .motion, .repl };
 
 const App = struct {
-    x: i32,
-    y: i32,
-    color: usize = 0,
+    screen: Screen = .home,
+    home: home_mod.Home = .{},
+    colors: colors_mod.Colors = .{},
+    motion: motion_mod.Motion = .{},
+    repl: repl_mod.Repl = undefined,
     running: bool = true,
 
-    fn init(display: *const Display) App {
-        return .{
-            .x = @divTrunc(@as(i32, @intCast(display.width)) - square, 2),
-            .y = @divTrunc(@as(i32, @intCast(display.height)) - square, 2),
-        };
+    fn init(self: *App, gpa: Allocator) void {
+        self.* = .{};
+        self.repl.init(gpa);
     }
 
-    fn handleKey(self: *App, event: input.KeyEvent, display: *const Display) void {
-        if (!event.isDown()) return;
-        const step = 6;
-        if (input.direction(event.code)) |direction| switch (direction) {
-            .left => self.x -= step,
-            .right => self.x += step,
-            .up => self.y -= step,
-            .down => self.y += step,
-        } else switch (event.code) {
-            input.keys.enter, input.keys.space => self.color = (self.color + 1) % colors.len,
-            // Quit on a short ESC press. (Holding ESC for 3 s makes the launcher kill the app.)
-            input.keys.esc => self.running = false,
-            else => {},
+    fn deinit(self: *App) void {
+        self.repl.deinit();
+    }
+
+    fn apply(self: *App, action: Action) void {
+        switch (action) {
+            .stay => {},
+            .home => self.screen = .home,
+            .open => |index| self.screen = demo_screens[index],
+            .next => {
+                const index = std.mem.indexOfScalar(Screen, &demo_screens, self.screen) orelse 0;
+                self.screen = demo_screens[(index + 1) % demo_screens.len];
+            },
+            .quit => self.running = false,
         }
-        self.x = std.math.clamp(self.x, 0, @as(i32, @intCast(display.width)) - square);
-        self.y = std.math.clamp(self.y, 20, @as(i32, @intCast(display.height)) - square - 14);
+    }
+
+    fn handleKey(self: *App, event: input.KeyEvent, typed: ?u8) Allocator.Error!void {
+        const action = switch (self.screen) {
+            .home => self.home.handleKey(event),
+            .colors => self.colors.handleKey(event),
+            .motion => self.motion.handleKey(event),
+            .repl => try self.repl.handleKey(event, typed),
+        };
+        self.apply(action);
+    }
+
+    /// Advance animations by one frame. Returns true if the screen needs redrawing.
+    fn tick(self: *App) bool {
+        switch (self.screen) {
+            .colors => {
+                self.colors.tick();
+                return self.colors.animated();
+            },
+            .motion => {
+                self.motion.tick();
+                return true;
+            },
+            .home, .repl => return false,
+        }
     }
 
     fn draw(self: *const App, display: *Display) void {
-        const width: i32 = @intCast(display.width);
-        const height: i32 = @intCast(display.height);
-        display.clear(background);
-        display.fillRect(0, 0, width, 18, title_bar);
-        display.drawText(6, 5, "Hello Cardputer", display_mod.white, 1);
-        display.fillRect(self.x, self.y, square, square, colors[self.color]);
-        const hint = "F/X/Z/C move  ENTER color  ESC quit";
-        display.drawText(@divTrunc(width - Display.textWidth(hint, 1), 2), height - 11, hint, muted, 1);
+        switch (self.screen) {
+            .home => self.home.draw(display),
+            .colors => self.colors.draw(display),
+            .motion => self.motion.draw(display),
+            .repl => self.repl.draw(display),
+        }
     }
 };
 
-// ~220 KB of pixel buffers: static storage rather than the stack.
+// ~220 KB of pixel buffers and the app's state: static storage rather than the stack.
 var screen: Display = undefined;
+var app: App = undefined;
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
@@ -72,15 +103,18 @@ pub fn main(init: std.process.Init) !void {
     defer screen.close();
     var keyboard = try input.Keyboard.open(init.environ_map);
     defer keyboard.close(io);
+    var typist = input.Typist.init(init.environ_map);
 
-    var app = App.init(&screen);
+    app.init(init.gpa);
+    defer app.deinit();
     var dirty = true;
     while (app.running) {
         while (try keyboard.poll()) |event| {
-            app.handleKey(event, &screen);
+            const typed = typist.charFor(event); // every event, so Shift is tracked
+            try app.handleKey(event, typed);
             dirty = true;
         }
-        if (dirty) {
+        if (app.tick() or dirty) {
             app.draw(&screen);
             try screen.present();
             dirty = false;

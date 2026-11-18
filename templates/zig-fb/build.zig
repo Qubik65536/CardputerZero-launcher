@@ -5,6 +5,7 @@
 //! zig build sim          run it in the fbsim window (build scripts/fbsim first)
 //! zig build device       static aarch64 Linux binary for the CardputerZero
 //!                        (zig-out/device/hello-cardputer)
+//! zig build test         unit tests (the calc language in src/calc.zig)
 
 const std = @import("std");
 
@@ -39,4 +40,13 @@ pub fn build(b: *std.Build) void {
     const device_exe = addApp(b, device_target, if (optimize == .debug) .safe else optimize);
     const install_device = b.addInstallArtifact(device_exe, .{ .dest_dir = .{ .override = .{ .custom = "device" } } });
     b.step("device", "Build the CardputerZero (aarch64 Linux) binary").dependOn(&install_device.step);
+
+    const tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/calc.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    b.step("test", "Run the unit tests").dependOn(&b.addRunArtifact(tests).step);
 }

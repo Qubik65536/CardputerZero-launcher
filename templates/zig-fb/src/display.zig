@@ -24,6 +24,21 @@ pub fn rgb(red: u8, green: u8, blue: u8) u16 {
 pub const black = rgb(0, 0, 0);
 pub const white = rgb(255, 255, 255);
 
+/// Character cell of the built-in font at scale 1, in pixels.
+pub const char_width = 8;
+pub const char_height = font.height;
+
+fn mixChannel(under: u16, over: u16, alpha: u32, comptime shift: u4, mask: u32) u16 {
+    const below = (@as(u32, under) >> shift) & mask;
+    const above = (@as(u32, over) >> shift) & mask;
+    return @intCast(((below * (255 - alpha) + above * alpha + 127) / 255) << shift);
+}
+
+/// Mix two RGB565 colors: `alpha` 0 = all `under`, 255 = all `over`.
+pub fn blend(under: u16, over: u16, alpha: u8) u16 {
+    return mixChannel(under, over, alpha, 11, 0x1F) | mixChannel(under, over, alpha, 5, 0x3F) | mixChannel(under, over, alpha, 0, 0x1F);
+}
+
 /// Expand RGB565 to XRGB8888, for panels that report a 32 bpp framebuffer.
 fn rgb565ToXrgb8888(pixel: u16) u32 {
     const red: u32 = (pixel >> 11) & 0x1F;
@@ -157,8 +172,59 @@ pub const Display = struct {
         for (top..bottom) |row| @memset(self.pixels[row * self.width + left .. row * self.width + right], color);
     }
 
-    /// Draw ASCII text with the built-in 8x8 font, enlarged `scale` times
-    /// (scale 1 = 8px tall, 2 = 16px).
+    /// Set one pixel; coordinates outside the screen are ignored.
+    pub fn setPixel(self: *Display, x: i32, y: i32, color: u16) void {
+        if (x < 0 or y < 0 or x >= self.width or y >= self.height) return;
+        self.pixels[@as(usize, @intCast(y)) * self.width + @as(usize, @intCast(x))] = color;
+    }
+
+    /// Mix `color` over the pixel at (x, y); `alpha` 0 = invisible, 255 = opaque.
+    pub fn blendPixel(self: *Display, x: i32, y: i32, color: u16, alpha: u8) void {
+        if (x < 0 or y < 0 or x >= self.width or y >= self.height) return;
+        const pixel = &self.pixels[@as(usize, @intCast(y)) * self.width + @as(usize, @intCast(x))];
+        pixel.* = blend(pixel.*, color, alpha);
+    }
+
+    /// Darken a rectangle, e.g. behind text drawn over a picture. `alpha` 255 = black.
+    pub fn shadeRect(self: *Display, x: i32, y: i32, width: i32, height: i32, alpha: u8) void {
+        var row = y;
+        while (row < y + height) : (row += 1) {
+            var column = x;
+            while (column < x + width) : (column += 1) self.blendPixel(column, row, black, alpha);
+        }
+    }
+
+    /// Fill a circle centered on (cx, cy), mixed in with `alpha` (255 = opaque).
+    pub fn fillCircle(self: *Display, cx: i32, cy: i32, radius: i32, color: u16, alpha: u8) void {
+        var dy = -radius;
+        while (dy <= radius) : (dy += 1) {
+            var dx = -radius;
+            while (dx <= radius) : (dx += 1) {
+                if (dx * dx + dy * dy <= radius * radius + radius) self.blendPixel(cx + dx, cy + dy, color, alpha);
+            }
+        }
+    }
+
+    /// Draw an image made by scripts/png_to_rgb565.py (with or without --alpha),
+    /// e.g. `display.drawImage(0, 0, @embedFile("wallpaper.rgb565"))`.
+    pub fn drawImage(self: *Display, x: i32, y: i32, image: []const u8) void {
+        const width: usize = std.mem.readInt(u16, image[0..2], .little);
+        const height: usize = std.mem.readInt(u16, image[2..4], .little);
+        const pixels = image[4..][0 .. width * height * 2];
+        const rest = image[4 + width * height * 2 ..];
+        const alpha: ?[]const u8 = if (rest.len >= width * height) rest else null;
+        for (0..height) |row| {
+            for (0..width) |column| {
+                const index = row * width + column;
+                const color = std.mem.readInt(u16, pixels[index * 2 ..][0..2], .little);
+                const opacity: u8 = if (alpha) |values| values[index] else 255;
+                self.blendPixel(x + @as(i32, @intCast(column)), y + @as(i32, @intCast(row)), color, opacity);
+            }
+        }
+    }
+
+    /// Draw ASCII text with the built-in 8x16 font, enlarged `scale` times
+    /// (scale 1 = 8x16 pixels per character, 2 = 16x32).
     pub fn drawText(self: *Display, x: i32, y: i32, text: []const u8, color: u16, scale: i32) void {
         var cursor = x;
         for (text) |char| {
@@ -170,13 +236,13 @@ pub const Display = struct {
                     }
                 }
             }
-            cursor += 8 * scale;
+            cursor += char_width * scale;
         }
     }
 
     /// Width in pixels that drawText would use, e.g. for centering.
     pub fn textWidth(text: []const u8, scale: i32) i32 {
-        return @as(i32, @intCast(text.len)) * 8 * scale;
+        return @as(i32, @intCast(text.len)) * char_width * scale;
     }
 
     /// Copy the canvas to the screen.

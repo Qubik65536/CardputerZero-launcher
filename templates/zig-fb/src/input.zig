@@ -22,6 +22,11 @@ pub const keys = struct {
     pub const esc: u16 = 1;
     pub const backspace: u16 = 14;
     pub const tab: u16 = 15;
+    pub const leftshift: u16 = 42;
+    pub const rightshift: u16 = 54;
+    pub const digit_1: u16 = 2;
+    pub const digit_2: u16 = 3;
+    pub const digit_3: u16 = 4;
     pub const enter: u16 = 28;
     pub const space: u16 = 57;
     pub const up: u16 = 103;
@@ -79,6 +84,78 @@ fn parseEvent(record: *const [input_event_size]u8) ?KeyEvent {
         },
     };
 }
+
+const DesktopRow = struct { first: u16, plain: []const u8, shifted: []const u8 };
+
+/// US desktop keyboard rows: key code of the first key, unshifted and shifted characters.
+const desktop_rows = [_]DesktopRow{
+    .{ .first = 2, .plain = "1234567890-=", .shifted = "!@#$%^&*()_+" },
+    .{ .first = 16, .plain = "qwertyuiop[]", .shifted = "QWERTYUIOP{}" },
+    .{ .first = 30, .plain = "asdfghjkl;'`", .shifted = "ASDFGHJKL:\"~" },
+    .{ .first = 43, .plain = "\\zxcvbnm,./", .shifted = "|ZXCVBNM<>?" },
+};
+
+const DeviceSymbol = struct { code: u16, char: u8 };
+
+/// The CardputerZero's symbol layer (SYM + key) sends these codes; the table is the
+/// launcher's default keymap (ext_components/cp0_lvgl/src/cp0/cp0_keyboard_keymap.c).
+const device_symbols = [_]DeviceSymbol{
+    .{ .code = 26, .char = '!' }, .{ .code = 27, .char = '@' }, .{ .code = 39, .char = '#' },  .{ .code = 40, .char = '$' },
+    .{ .code = 41, .char = '%' }, .{ .code = 43, .char = '^' }, .{ .code = 51, .char = '&' },  .{ .code = 52, .char = '*' },
+    .{ .code = 53, .char = '(' }, .{ .code = 94, .char = ')' }, .{ .code = 55, .char = '~' },  .{ .code = 69, .char = '`' },
+    .{ .code = 70, .char = '_' }, .{ .code = 71, .char = '-' }, .{ .code = 72, .char = '+' },  .{ .code = 73, .char = '=' },
+    .{ .code = 74, .char = '[' }, .{ .code = 75, .char = ']' }, .{ .code = 76, .char = '{' },  .{ .code = 77, .char = '}' },
+    .{ .code = 79, .char = ';' }, .{ .code = 80, .char = ':' }, .{ .code = 81, .char = '\'' }, .{ .code = 82, .char = '"' },
+    .{ .code = 83, .char = '<' }, .{ .code = 85, .char = '>' }, .{ .code = 86, .char = '\\' }, .{ .code = 89, .char = '|' },
+    .{ .code = 90, .char = ',' }, .{ .code = 91, .char = '.' }, .{ .code = 92, .char = '/' },  .{ .code = 93, .char = '?' },
+};
+
+fn desktopChar(code: u16, shift: bool) ?u8 {
+    if (code == keys.space) return ' ';
+    for (desktop_rows) |row| {
+        if (code < row.first) continue;
+        const characters = if (shift) row.shifted else row.plain;
+        const index = code - row.first;
+        if (index < characters.len) return characters[index];
+    }
+    return null;
+}
+
+fn deviceChar(code: u16, shift: bool) ?u8 {
+    for (device_symbols) |symbol| if (symbol.code == code) return symbol.char;
+    // Letters, digits and space are where a PC keyboard has them; Shift makes capitals.
+    const char = desktopChar(code, false) orelse return null;
+    if (std.ascii.isAlphabetic(char)) return if (shift) std.ascii.toUpper(char) else char;
+    return if (std.ascii.isDigit(char) or char == ' ') char else null;
+}
+
+/// Which characters keys type: the CardputerZero's own keyboard, or a US desktop
+/// keyboard (fbsim and the emulator, which set CARDPUTER_INPUT).
+pub const Layout = enum { device, desktop };
+
+/// Turns key events into typed characters, keeping track of Shift.
+pub const Typist = struct {
+    layout: Layout,
+    shift: bool = false,
+
+    pub fn init(env: *const std.process.Environ.Map) Typist {
+        return .{ .layout = if (env.get("CARDPUTER_INPUT") != null) .desktop else .device };
+    }
+
+    /// The character a key press types, if any. Feed it every event, releases
+    /// included, so it sees Shift go up and down.
+    pub fn charFor(self: *Typist, event: KeyEvent) ?u8 {
+        if (event.code == keys.leftshift or event.code == keys.rightshift) {
+            self.shift = event.isDown();
+            return null;
+        }
+        if (!event.isDown()) return null;
+        return switch (self.layout) {
+            .device => deviceChar(event.code, self.shift),
+            .desktop => desktopChar(event.code, self.shift),
+        };
+    }
+};
 
 /// The built-in keyboard's event device. APPLaunch exports its path to the apps
 /// it starts; the fixed by-path name is the same device when run another way.

@@ -31,47 +31,54 @@ calls) and `input.zig` (`std.posix`).
 
 ## Project tour
 
+The app is described in [framebuffer apps](framebuffer-apps.md#the-template-app):
+a home screen and three demos.
+
 | File | Contents |
 | --- | --- |
-| `src/main.zig` | `App` (your state), `handleKey`, `draw`, and `main(init: std.process.Init)` with the loop |
-| `src/display.zig` | `Display.open(io, env)`, `clear`, `fillRect`, `drawText`, `Display.textWidth`, `present`, `close`; `rgb(r, g, b)`, `black`, `white` |
-| `src/input.zig` | `Keyboard.open(env)`, `poll() !?KeyEvent`, `close(io)`; `KeyEvent{ code, state }`, `isDown()`; `keys.*`; `direction(code) ?Direction` |
-| `src/font.zig` | The 8x8 glyph table |
-| `build.zig` | `zig build`, `zig build sim`, `zig build device` |
+| `src/main.zig` | `App` (the current `Screen` and each screen's state), `handleKey`, `tick`, `draw`, and `main(init: std.process.Init)` with the loop |
+| `src/ui.zig` | `language`, `language_color` and the palette; `drawHeader`, `drawHint`, `drawShadowedText`; `Action` |
+| `src/home.zig` | The home screen: wallpaper (`@embedFile("wallpaper.rgb565")`), greeting, menu (`demos`) |
+| `src/colors.zig` | RGB triangle (barycentric shading) and HSV wheel |
+| `src/motion.zig` | The ball: momentum, bounces, trail, sparks |
+| `src/repl.zig` | The terminal-style screen: scrollback, input line, history, `help`/`vars`/`clear` |
+| `src/calc.zig` | The calculator language (`Calculator.run(line)` returns `.ok` or `.err` text) and its `test` blocks |
+| `src/display.zig` | `Display.open(io, env)`, `clear`, `fillRect`, `setPixel`, `blendPixel`, `shadeRect`, `fillCircle`, `drawImage`, `drawText`, `Display.textWidth`, `present`, `close`; `rgb(r, g, b)`, `blend(under, over, alpha)`, `black`, `white`, `char_width`, `char_height` |
+| `src/input.zig` | `Keyboard.open(env)`, `poll() !?KeyEvent`, `close(io)`; `KeyEvent{ code, state }`, `isDown()`; `keys.*`; `direction(code) ?Direction`; `Typist.init(env)`, `charFor(event) ?u8` |
+| `src/font.zig` | The 8x16 glyph table |
+| `src/wallpaper.rgb565` | The home screen's 320x170 picture |
+| `build.zig` | `zig build`, `zig build sim`, `zig build device`, `zig build test` |
 
 `Display` holds about 220 KB of buffers, so `main.zig` keeps it in a global
 (`var screen: Display = undefined;`) rather than on the stack. `main` receives
-`init.io` (the `std.Io` implementation) and `init.environ_map` (environment
-variables), which the modules use.
+`init.io` (the `std.Io` implementation), `init.environ_map` (environment
+variables) and `init.gpa` (an allocator, used by the REPL for its history and
+the calculator's variables), which the modules use.
 
 ## Common tasks
 
-**A new screen or mode.** Add `screen: enum { menu, game, game_over }` to
-`App`, and `switch` on it in `handleKey` and `draw`.
+**Start from one demo.** Delete the screens you don't want: remove the
+import, its field and `Screen` value in `main.zig`, its entry in
+`demo_screens` and in `home.demos`. Or make one demo the whole app by starting
+`App` on its screen.
 
-**Timed updates.** Read a clock each frame: `const now = std.Io.Clock.awake.now(io);`
-and pass the difference to an `update` function; redraw every frame.
+**A new screen.** Copy the shape of `motion.zig`: a struct with
+`handleKey(event) Action`, `draw(display)` and, if it animates, `tick()`.
+Add a `Screen` value, the `switch` prongs in `main.zig`, and entries in
+`home.demos` and `demo_screens`.
+
+**Timed updates.** `App.tick` runs every frame; the demos advance by one frame
+per tick. For speed that doesn't depend on the frame rate, read a clock
+(`std.Io.Clock.awake.now(io)`) and pass the difference to your update.
+
+**Text input.** Pass every event to `typist.charFor` (see `main`), then use the
+character in the screen that wants text, as `Repl.handleKey` does.
 
 **Images.** Convert with `scripts/png_to_rgb565.py art/player.png src/player.rgb565 --alpha`
-(keep the file under `src/` so `@embedFile` can reach it), then add to `Display`:
-
-```zig
-/// Draw an image made by scripts/png_to_rgb565.py (with or without --alpha).
-pub fn drawImage(self: *Display, x: i32, y: i32, image: []const u8) void {
-    const width: usize = std.mem.readInt(u16, image[0..2], .little);
-    const height: usize = std.mem.readInt(u16, image[2..4], .little);
-    const pixels = image[4 .. 4 + width * height * 2];
-    const has_alpha = image.len >= 4 + width * height * 3;
-    for (0..height) |row| for (0..width) |column| {
-        const index = row * width + column;
-        if (has_alpha and image[4 + width * height * 2 + index] < 128) continue;
-        const color = std.mem.readInt(u16, pixels[index * 2 ..][0..2], .little);
-        self.fillRect(x + @as(i32, @intCast(column)), y + @as(i32, @intCast(row)), 1, 1, color);
-    };
-}
-```
-
-Use it with `screen.drawImage(10, 30, @embedFile("player.rgb565"));`.
+(keep the file under `src/` so `@embedFile` can reach it) and draw with
+`screen.drawImage(10, 30, @embedFile("player.rgb565"))`. A new wallpaper:
+`python3 ../../scripts/png_to_rgb565.py my-picture.png src/wallpaper.rgb565`
+with a 320x170 PNG.
 
 **Saving data.** `init.environ_map.get("HOME")` gives `/home/pi`; use
 `std.Io.Dir` to create `~/.local/share/<app>/` and write files.
@@ -84,7 +91,7 @@ SCons projects download one to `SDK/github_source/static_lib_v0.0.7`).
 ## Testing
 
 ```bash
-zig build test                                     # add `test` blocks + a test step as you grow
+zig build test                                     # the `test` blocks (calc.zig has some)
 zig build && python3 ../../scripts/fbsim/headless.py \
-    --keys "c c enter esc" --png /tmp/shot.png --expect-exit 0 -- ./zig-out/bin/pixel-pet
+    --keys "3 6 shift+8 7 enter" --png /tmp/shot.png -- ./zig-out/bin/pixel-pet
 ```
