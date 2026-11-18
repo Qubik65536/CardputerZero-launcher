@@ -4,5 +4,6 @@
   "version": "0.1.0",
   "description": "A minimal CardputerZero app written in C++ and LVGL.",
   "maintainer": "Your Name <you@example.com>",
-  "binary": "dist/hello-cardputer"
+  "binary": "dist/hello-cardputer",
+  "desktop_binary": "dist/hello-cardputer"
 }

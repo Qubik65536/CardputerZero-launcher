@@ -15,6 +15,7 @@ Reads <app>/cardputer-app.json:
       "description": "Local weather on the CardputerZero",
       "maintainer": "You <you@example.com>",
       "binary": "target/aarch64-unknown-linux-gnu/release/weather-station",
+      "desktop_binary": "target/debug/weather-station",  # optional, for scripts/emulator_install.py
       "resources": "APPLaunch",           # optional, default "APPLaunch"
       "depends": ["libc6"]                # optional extra Debian dependencies
     }
