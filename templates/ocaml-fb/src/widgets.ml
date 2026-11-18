@@ -1,14 +1,17 @@
 (* SPDX-FileCopyrightText: 2026 M5Stack Technology CO LTD
    SPDX-License-Identifier: MIT
 
-   Demo 4, widgets: a small form with a text field, a button, a slider, a
-   counter, a chooser and a switch, drawn by hand on the framebuffer. One widget
-   has the focus; F/X move it, Z/C change the value, ENTER presses. The text
+   Demo 4, widgets: a small form with a text field, two buttons, a slider,
+   a counter, a chooser and a switch, drawn by hand on the framebuffer. One
+   widget has the focus; F/X move it, Z/C change the value, ENTER presses. The text
    field takes typing. *)
 
-type widget = Name | Button | Volume | Count | Color | Sound
+type widget = Name | Button | AddOne | Volume | Count | Color | Sound
 
-(* The form, top to bottom, with each row's label. *)
+(* The order F/X move the focus in. The two buttons share the "Button" row. *)
+let focus_order = [| Name; Button; AddOne; Volume; Count; Color; Sound |]
+
+(* The form's rows, top to bottom, with each row's label. *)
 let rows =
   [| (Name, "Name"); (Button, "Button"); (Volume, "Volume"); (Count, "Count"); (Color, "Color"); (Sound, "Sound") |]
 
@@ -28,18 +31,22 @@ let widget_width = 242
 let max_name = 24
 let slider_width = 176
 let volume_step = 5
-let press_frames = 10 (* how long the button shows as pressed *)
+let press_frames = 10 (* how long a button shows as pressed *)
+let hello_width = 120
+let add_one_left = widget_left + hello_width + 8
+let add_one_width = 96
 let field = Display.rgb 8 10 14
 let border = Display.rgb 60 70 82
 let face = Display.rgb 28 34 42
 
 type t = {
-  mutable focus : int; (* index into rows *)
+  mutable focus : int; (* index into focus_order *)
   mutable name : string;
   mutable volume : int; (* 0..100 *)
   mutable count : int;
   mutable choice : int; (* index into choices *)
   mutable sound : bool;
+  mutable pressed : widget; (* the button shown pressed while pressed_frames > 0 *)
   mutable pressed_frames : int;
   mutable status : string; (* what the last action did *)
 }
@@ -59,6 +66,7 @@ let create () =
     count = 0;
     choice = language_choice ();
     sound = true;
+    pressed = Button;
     pressed_frames = 0;
     status = "Try every widget";
   }
@@ -66,9 +74,9 @@ let create () =
 (* The accent color is whatever the chooser picked. *)
 let accent widgets = snd choices.(widgets.choice)
 
-let focused widgets = fst rows.(widgets.focus)
+let focused widgets = focus_order.(widgets.focus)
 
-(* True while the button shows its pressed state. *)
+(* True while a button shows its pressed state. *)
 let animated widgets = widgets.pressed_frames > 0
 
 let tick widgets = widgets.pressed_frames <- max 0 (widgets.pressed_frames - 1)
@@ -76,7 +84,7 @@ let tick widgets = widgets.pressed_frames <- max 0 (widgets.pressed_frames - 1)
 (* [a] modulo [b], never negative. *)
 let wrap a b = ((a mod b) + b) mod b
 
-let move_focus widgets step = widgets.focus <- wrap (widgets.focus + step) (Array.length rows)
+let move_focus widgets step = widgets.focus <- wrap (widgets.focus + step) (Array.length focus_order)
 
 (* Z/C (or left/right): step the focused widget's value. *)
 let change widgets step =
@@ -93,15 +101,23 @@ let change widgets step =
   | Sound ->
       widgets.sound <- not widgets.sound;
       widgets.status <- Printf.sprintf "Sound %s" (if widgets.sound then "on" else "off")
-  | Name | Button -> ()
+  | Name | Button | AddOne -> ()
+
+let press widgets button =
+  widgets.pressed <- button;
+  widgets.pressed_frames <- press_frames
 
 (* ENTER or SPACE on the focused widget. *)
 let activate widgets =
   match focused widgets with
   | Button ->
-      widgets.pressed_frames <- press_frames;
+      press widgets Button;
       let name = String.trim widgets.name in
       widgets.status <- Printf.sprintf "Hello, %s!" (if name = "" then "stranger" else name)
+  | AddOne ->
+      press widgets AddOne;
+      widgets.count <- widgets.count + 1;
+      widgets.status <- Printf.sprintf "Count %d" widgets.count
   | Count ->
       widgets.count <- 0;
       widgets.status <- "Count reset"
@@ -156,14 +172,17 @@ let draw_text_field widgets display y focused =
         (y + 3) Display.char_width (Display.char_height - 4) accent (* cursor *)
   end
 
-let draw_button widgets display y focused =
+let draw_button widgets display x y width button label =
   let accent = accent widgets in
-  let width = 120 and label = "Say hello" in
-  let pressed = widgets.pressed_frames > 0 in
-  Display.fill_rect display widget_left y width row_height (if pressed then accent else face);
-  Display.stroke_rect display widget_left y width row_height (if focused then accent else border);
-  let x = widget_left + ((width - Display.text_width label 1) / 2) in
-  Display.draw_text display x (y + 1) label (if pressed then Ui.background else Ui.text) 1
+  let pressed = widgets.pressed_frames > 0 && widgets.pressed = button in
+  Display.fill_rect display x y width row_height (if pressed then accent else face);
+  Display.stroke_rect display x y width row_height (if focused widgets = button then accent else border);
+  let text_x = x + ((width - Display.text_width label 1) / 2) in
+  Display.draw_text display text_x (y + 1) label (if pressed then Ui.background else Ui.text) 1
+
+let draw_buttons widgets display y =
+  draw_button widgets display widget_left y hello_width Button "Say hello";
+  draw_button widgets display add_one_left y add_one_width AddOne "Count +1"
 
 let draw_slider widgets display y focused =
   let accent = accent widgets in
@@ -208,12 +227,13 @@ let draw widgets display =
   Array.iteri
     (fun index (widget, label) ->
       let y = top + (index * row_height) in
-      let focused = index = widgets.focus in
+      (* The Button row is focused when either of its buttons is. *)
+      let focused = widget = focused widgets || (widget = Button && focused widgets = AddOne) in
       if focused then Display.fill_rect display 0 y 3 row_height accent;
       Display.draw_text display 8 (y + 1) label (if focused then accent else Ui.muted) 1;
       match widget with
       | Name -> draw_text_field widgets display y focused
-      | Button -> draw_button widgets display y focused
+      | Button | AddOne -> draw_buttons widgets display y
       | Volume -> draw_slider widgets display y focused
       | Count -> draw_counter widgets display y focused
       | Color -> draw_chooser widgets display y focused

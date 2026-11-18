@@ -81,8 +81,9 @@ text field do.
 
 **Forms and widgets.** `widgets.zig` shows the pattern: a list of rows, one
 focused index, and per-widget functions to change, activate and draw. Add a
-row by adding a `Widget` value, its label in `rows`, and prongs in `change`,
-`activate` and `draw`.
+row by adding a `Widget` value, its label in `rows`, its place in
+`focus_order` (two widgets can share a row, like the two buttons), and prongs
+in `change`, `activate` and `draw`.
 
 **Images.** Convert with `scripts/png_to_rgb565.py art/player.png src/player.rgb565 --alpha`
 (keep the file under `src/` so `@embedFile` can reach it) and draw with

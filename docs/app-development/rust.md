@@ -81,8 +81,9 @@ Widgets text field do.
 
 **Forms and widgets.** `widgets.rs` shows the pattern: a list of rows, one
 focused index, and per-widget functions to change, activate and draw. Add a
-row by adding a `Widget` variant, its label in `ROWS`, and arms in `change`,
-`activate` and `draw`.
+row by adding a `Widget` variant, its label in `ROWS`, its place in
+`FOCUS_ORDER` (two widgets can share a row, like the two buttons), and arms in
+`change`, `activate` and `draw`.
 
 **Images.** Convert with `scripts/png_to_rgb565.py art/player.png assets/player.rgb565 --alpha`
 and draw with `display.draw_image(10, 30, include_bytes!("../assets/player.rgb565"))`

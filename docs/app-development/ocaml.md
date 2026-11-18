@@ -83,8 +83,9 @@ Widgets text field do.
 
 **Forms and widgets.** `widgets.ml` shows the pattern: an array of rows, one
 focused index, and per-widget functions to change, activate and draw. Add a
-row by adding a `widget` constructor, its label in `rows`, and cases in
-`change`, `activate` and `draw`.
+row by adding a `widget` constructor, its label in `rows`, its place in
+`focus_order` (two widgets can share a row, like the two buttons), and cases
+in `change`, `activate` and `draw`.
 
 **Images.** OCaml has no `include_bytes`, so `src/dune` has a rule that runs
 `src/embed.ml` with the `ocaml` toplevel to turn `wallpaper.rgb565` into the

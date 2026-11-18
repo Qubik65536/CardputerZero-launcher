@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 M5Stack Technology CO LTD
 // SPDX-License-Identifier: MIT
 
-//! Demo 4, widgets: a small form with a text field, a button, a slider, a counter, a
+//! Demo 4, widgets: a small form with a text field, two buttons, a slider, a counter, a
 //! chooser and a switch, drawn by hand on the framebuffer. One widget has the focus;
 //! F/X move it, Z/C change the value, ENTER presses. The text field takes typing.
 
@@ -17,11 +17,14 @@ const Action = ui.Action;
 const char_width = display_mod.char_width;
 const char_height = display_mod.char_height;
 
-const Widget = enum { name, button, volume, count, color, sound };
+const Widget = enum { name, button, add_one, volume, count, color, sound };
 
 const Row = struct { widget: Widget, label: []const u8 };
 
-/// The form, top to bottom, with each row's label.
+/// The order F/X move the focus in. The two buttons share the "Button" row.
+const focus_order = [_]Widget{ .name, .button, .add_one, .volume, .count, .color, .sound };
+
+/// The form's rows, top to bottom, with each row's label.
 const rows = [_]Row{
     .{ .widget = .name, .label = "Name" },
     .{ .widget = .button, .label = "Button" },
@@ -48,7 +51,10 @@ const widget_width = 242;
 const max_name = 24;
 const slider_width = 176;
 const volume_step = 5;
-const press_frames = 10; // how long the button shows as pressed
+const press_frames = 10; // how long a button shows as pressed
+const hello_width = 120;
+const add_one_left = widget_left + hello_width + 8;
+const add_one_width = 96;
 const max_status = 48;
 const field = rgb(8, 10, 14);
 const border = rgb(60, 70, 82);
@@ -91,12 +97,13 @@ fn Text(comptime capacity: usize) type {
 }
 
 pub const Widgets = struct {
-    focus: usize = 0, // index into rows
+    focus: usize = 0, // index into focus_order
     name: Text(max_name) = .{},
     volume: i32 = 50, // 0..100
     count: i32 = 0,
     choice: usize = languageChoice(), // index into choices
     sound: bool = true,
+    pressed: Widget = .button, // the button shown pressed while pressed_frames > 0
     pressed_frames: u32 = 0,
     status: Text(max_status) = .of("Try every widget"), // what the last action did
 
@@ -106,10 +113,10 @@ pub const Widgets = struct {
     }
 
     fn focused(self: *const Widgets) Widget {
-        return rows[self.focus].widget;
+        return focus_order[self.focus];
     }
 
-    /// True while the button shows its pressed state.
+    /// True while a button shows its pressed state.
     pub fn animated(self: *const Widgets) bool {
         return self.pressed_frames > 0;
     }
@@ -119,7 +126,7 @@ pub const Widgets = struct {
     }
 
     fn moveFocus(self: *Widgets, step: i32) void {
-        self.focus = wrap(self.focus, step, rows.len);
+        self.focus = wrap(self.focus, step, focus_order.len);
     }
 
     /// Z/C (or left/right): step the focused widget's value.
@@ -141,17 +148,27 @@ pub const Widgets = struct {
                 self.sound = !self.sound;
                 self.status.set("Sound {s}", .{if (self.sound) "on" else "off"});
             },
-            .name, .button => {},
+            .name, .button, .add_one => {},
         }
+    }
+
+    fn press(self: *Widgets, button: Widget) void {
+        self.pressed = button;
+        self.pressed_frames = press_frames;
     }
 
     /// ENTER or SPACE on the focused widget.
     fn activate(self: *Widgets) void {
         switch (self.focused()) {
             .button => {
-                self.pressed_frames = press_frames;
+                self.press(.button);
                 const name = std.mem.trim(u8, self.name.slice(), &std.ascii.whitespace);
                 self.status.set("Hello, {s}!", .{if (name.len == 0) "stranger" else name});
+            },
+            .add_one => {
+                self.press(.add_one);
+                self.count += 1;
+                self.status.set("Count {d}", .{self.count});
             },
             .count => {
                 self.count = 0;
@@ -207,15 +224,18 @@ pub const Widgets = struct {
         }
     }
 
-    fn drawButton(self: *const Widgets, display: *Display, y: i32, is_focused: bool) void {
+    fn drawButton(self: *const Widgets, display: *Display, x: i32, y: i32, width: i32, button: Widget, label: []const u8) void {
         const color = self.accent();
-        const width = 120;
-        const label = "Say hello";
-        const pressed = self.pressed_frames > 0;
-        display.fillRect(widget_left, y, width, row_height, if (pressed) color else face);
-        display.strokeRect(widget_left, y, width, row_height, if (is_focused) color else border);
-        const x = widget_left + @divTrunc(width - Display.textWidth(label, 1), 2);
-        display.drawText(x, y + 1, label, if (pressed) ui.background else ui.text, 1);
+        const pressed = self.pressed_frames > 0 and self.pressed == button;
+        display.fillRect(x, y, width, row_height, if (pressed) color else face);
+        display.strokeRect(x, y, width, row_height, if (self.focused() == button) color else border);
+        const text_x = x + @divTrunc(width - Display.textWidth(label, 1), 2);
+        display.drawText(text_x, y + 1, label, if (pressed) ui.background else ui.text, 1);
+    }
+
+    fn drawButtons(self: *const Widgets, display: *Display, y: i32) void {
+        self.drawButton(display, widget_left, y, hello_width, .button, "Say hello");
+        self.drawButton(display, add_one_left, y, add_one_width, .add_one, "Count +1");
     }
 
     fn drawSlider(self: *const Widgets, display: *Display, y: i32, is_focused: bool) void {
@@ -270,12 +290,13 @@ pub const Widgets = struct {
         display.clear(ui.background);
         for (rows, 0..) |row, index| {
             const y = top + @as(i32, @intCast(index)) * row_height;
-            const is_focused = index == self.focus;
+            // The Button row is focused when either of its buttons is.
+            const is_focused = row.widget == self.focused() or (row.widget == .button and self.focused() == .add_one);
             if (is_focused) display.fillRect(0, y, 3, row_height, color);
             display.drawText(8, y + 1, row.label, if (is_focused) color else ui.muted, 1);
             switch (row.widget) {
                 .name => self.drawTextField(display, y, is_focused),
-                .button => self.drawButton(display, y, is_focused),
+                .button, .add_one => self.drawButtons(display, y),
                 .volume => self.drawSlider(display, y, is_focused),
                 .count => self.drawCounter(display, y, is_focused),
                 .color => self.drawChooser(display, y, is_focused),
