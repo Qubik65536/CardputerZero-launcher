@@ -1,0 +1,8 @@
+{
+  "id": "hello-cardputer",
+  "name": "Hello Cardputer",
+  "version": "0.1.0",
+  "description": "A minimal CardputerZero app written in Rust.",
+  "maintainer": "Your Name <you@example.com>",
+  "binary": "target/aarch64-unknown-linux-gnu/release/hello-cardputer"
+}

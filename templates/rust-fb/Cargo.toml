@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 M5Stack Technology CO LTD
+# SPDX-License-Identifier: MIT
+
+[package]
+name = "hello-cardputer"
+version = "0.1.0"
+edition = "2021"
+description = "Hello Cardputer: a CardputerZero app"
+publish = false
+
+# No dependencies: the framebuffer and keyboard are plain Linux files.
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

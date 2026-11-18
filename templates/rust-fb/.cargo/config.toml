@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: 2026 M5Stack Technology CO LTD
+# SPDX-License-Identifier: MIT
+
+# Device builds: cargo build --release --target aarch64-unknown-linux-gnu
+# The linker is the aarch64 GNU/Linux cross gcc:
+#   macOS:  brew tap messense/macos-cross-toolchains && brew install aarch64-unknown-linux-gnu
+#   Debian: sudo apt install gcc-aarch64-linux-gnu
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"
