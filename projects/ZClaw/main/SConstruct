@@ -65,22 +65,8 @@ lvgl_component['PRIVATE_INCLUDE'] = [
     ADir('../../../SDK/github_source/lvgl/lvgl_9_5/lvgl/src/libs/freetype'),
 ] + lvgl_component['PRIVATE_INCLUDE']
 
-def host_pkg_config(pkg):
-    """Return (cflags, libs, ldflags) for a host package, or None for cross builds.
-
-    pkg-config on the build machine describes host libraries, so it is only used
-    when no sysroot is configured. Homebrew emits -L / -Wl,-framework flags next
-    to -l entries; only -l entries are library requirements for the SDK build.
-    """
-    if os.environ.get('CONFIG_TOOLCHAIN_SYSROOT'):
-        return None
-    cflags = pkg_config_cflags(pkg)
-    flags = pkg_config_ldflags(pkg)
-    if not cflags and not flags:
-        return None
-    return (cflags,
-            [flag for flag in flags if flag.startswith('-l')],
-            [flag for flag in flags if not flag.startswith('-l')])
+# Shared helper: host pkg-config lookups that are skipped for sysroot builds.
+from cp0_host_toolchain import host_pkg_config
 
 if 'CONFIG_V9_5_LV_USE_SDL' in os.environ:
     sdl2 = host_pkg_config('sdl2')

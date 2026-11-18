@@ -51,3 +51,27 @@ def configure_host_toolchain(defaults_file):
     if prefix.startswith("aarch64") and "CONFIG_GCC_DUMPMACHINE" not in os.environ:
         if not _profile_value(profile_text, "GCC_DUMPMACHINE"):
             os.environ["CONFIG_GCC_DUMPMACHINE"] = "aarch64-linux-gnu"
+
+
+def host_pkg_config(package):
+    """Return (cflags, libs, ldflags) for a host library, or None.
+
+    pkg-config describes libraries of the build machine, so this returns None
+    whenever a cross sysroot is configured (or the package is unknown) and the
+    caller should fall back to its sysroot paths. Homebrew emits -L and
+    -Wl,-framework flags next to -l entries; the SDK treats every REQUIREMENTS
+    entry as a library, so only -l entries go in `libs` and the rest in
+    `ldflags` (put those in a component's LDFLAGS).
+    """
+    import subprocess
+
+    if os.environ.get("CONFIG_TOOLCHAIN_SYSROOT"):
+        return None
+    try:
+        cflags = subprocess.check_output(["pkg-config", "--cflags", package], text=True).split()
+        flags = subprocess.check_output(["pkg-config", "--libs", package], text=True).split()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return (cflags,
+            [flag for flag in flags if flag.startswith("-l")],
+            [flag for flag in flags if not flag.startswith("-l")])
