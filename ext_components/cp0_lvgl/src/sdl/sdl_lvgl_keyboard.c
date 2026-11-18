@@ -38,6 +38,9 @@ _Static_assert(CP0_LV_KEY_UP == LV_KEY_UP && CP0_LV_KEY_DOWN == LV_KEY_DOWN &&
                    CP0_LV_KEY_HOME == LV_KEY_HOME && CP0_LV_KEY_END == LV_KEY_END,
                "cp0_keyboard_lvgl_key.h is out of date with lv_key_t");
 
+/* Set after reporting injected text as pressed; released by the next read. */
+static uint32_t pending_release_key;
+
 typedef struct {
     struct key_item current;
     SDL_Scancode current_scancode;
@@ -488,6 +491,13 @@ static void cp0_sdl_keyboard_read(lv_indev_t *indev, lv_indev_data_t *data)
     data->state = LV_INDEV_STATE_RELEASED;
     data->continue_reading = false;
 
+    if (pending_release_key) { /* the release of injected text (cp0_keyboard_lvgl_needs_press) */
+        data->key = pending_release_key;
+        pending_release_key = 0;
+        data->continue_reading = cp0_keyboard_queue_has_data();
+        return;
+    }
+
     struct key_item *elm = cp0_keyboard_queue_pop();
     if (elm) {
         const int intercept = lvgl_keypad_intercept;
@@ -510,12 +520,16 @@ static void cp0_sdl_keyboard_read(lv_indev_t *indev, lv_indev_data_t *data)
                                                   ? elm->semantic_key
                                                   : elm->key_code;
                 data->key = cp0_keyboard_lvgl_key(semantic_key, elm->codepoint);
-                if (data->key)
+                if (cp0_keyboard_lvgl_needs_press(elm->key_code, elm->key_state, data->key)) {
+                    data->state = LV_INDEV_STATE_PRESSED;
+                    pending_release_key = data->key;
+                } else if (data->key) {
                     data->state = cp0_keyboard_lvgl_key_pressed(elm->key_state) ? LV_INDEV_STATE_PRESSED
-                                                                                 : LV_INDEV_STATE_RELEASED;
+                                                                                    : LV_INDEV_STATE_RELEASED;
+                }
             }
         }
-        data->continue_reading = cp0_keyboard_queue_has_data();
+        data->continue_reading = cp0_keyboard_queue_has_data() || pending_release_key != 0;
         free(elm);
     }
 }

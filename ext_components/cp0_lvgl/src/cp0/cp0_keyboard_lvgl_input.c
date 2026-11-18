@@ -26,6 +26,9 @@ _Static_assert(CP0_LV_KEY_UP == LV_KEY_UP && CP0_LV_KEY_DOWN == LV_KEY_DOWN &&
                    CP0_LV_KEY_HOME == LV_KEY_HOME && CP0_LV_KEY_END == LV_KEY_END,
                "cp0_keyboard_lvgl_key.h is out of date with lv_key_t");
 
+/* Set after reporting injected text as pressed; released by the next read. */
+static uint32_t pending_release_key;
+
 #undef SLOGD
 #define SLOGD(...) do { } while (0)
 
@@ -84,6 +87,13 @@ static void keypad_read(lv_indev_t *indev, lv_indev_data_t *data)
     data->state = LV_INDEV_STATE_RELEASED;
     data->continue_reading = false;
 
+    if (pending_release_key) { /* the release of injected text (cp0_keyboard_lvgl_needs_press) */
+        data->key = pending_release_key;
+        pending_release_key = 0;
+        data->continue_reading = cp0_keyboard_queue_has_data();
+        return;
+    }
+
     struct key_item *item = cp0_keyboard_queue_pop();
     if (item) {
         const int intercept = lvgl_keypad_intercept;
@@ -121,12 +131,16 @@ static void keypad_read(lv_indev_t *indev, lv_indev_data_t *data)
                                                   ? item->semantic_key
                                                   : item->key_code;
                 data->key = cp0_keyboard_lvgl_key(semantic_key, item->codepoint);
-                if (data->key)
+                if (cp0_keyboard_lvgl_needs_press(item->key_code, item->key_state, data->key)) {
+                    data->state = LV_INDEV_STATE_PRESSED;
+                    pending_release_key = data->key;
+                } else if (data->key) {
                     data->state = cp0_keyboard_lvgl_key_pressed(item->key_state) ? LV_INDEV_STATE_PRESSED
                                                                                     : LV_INDEV_STATE_RELEASED;
+                }
             }
         }
-        data->continue_reading = cp0_keyboard_queue_has_data();
+        data->continue_reading = cp0_keyboard_queue_has_data() || pending_release_key != 0;
         free(item);
     }
 }

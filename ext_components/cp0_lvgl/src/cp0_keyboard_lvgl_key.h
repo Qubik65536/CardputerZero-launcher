@@ -12,9 +12,10 @@
  * LVGL's keypad keys are characters plus a few control values (LV_KEY_UP = 17,
  * LV_KEY_ENTER = 10, ...). Navigation and editing keys map to those controls.
  * Keys that type something report the character, so lv_textarea and friends
- * edit text natively. Other keys pass their Linux code through (e.g.
- * KEY_PAGEUP for pages that page by it), except codes that LVGL would read as
- * a control key (KEY_W is 17 = LV_KEY_UP, KEY_9 is 10 = LV_KEY_ENTER, ...).
+ * edit text natively. Keys that type nothing report nothing (0): their raw
+ * Linux codes would read as characters or control keys (KEY_W is 17 =
+ * LV_KEY_UP, KEY_9 is 10 = LV_KEY_ENTER, F1 is 59 = ';'), except KEY_PAGEUP and
+ * KEY_PAGEDOWN, which settings pages page by.
  */
 
 #pragma once
@@ -83,7 +84,16 @@ static inline uint32_t cp0_keyboard_lvgl_key(uint32_t semantic_key, uint32_t cod
     default: break;
     }
     if (codepoint >= 0x20 && codepoint != 0x7f) return codepoint;
-    return cp0_keyboard_is_lvgl_control_key(semantic_key) ? 0 : semantic_key;
+    if (semantic_key == KEY_PAGEUP || semantic_key == KEY_PAGEDOWN) return semantic_key;
+    return 0;
+}
+
+/* Text injected by the automation RPC (cp0_keyboard_inject_text) arrives as
+ * released items without a key code. LVGL types a key only on a press, so the
+ * backends report such an item as pressed, then released on the next read. */
+static inline int cp0_keyboard_lvgl_needs_press(uint32_t key_code, int key_state, uint32_t lvgl_key)
+{
+    return key_code == 0 && key_state == KBD_KEY_RELEASED && lvgl_key != 0;
 }
 
 /* LVGL keypads know pressed and released only: an auto-repeat is still pressed,

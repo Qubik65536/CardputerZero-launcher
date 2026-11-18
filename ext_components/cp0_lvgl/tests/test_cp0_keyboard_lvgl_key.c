@@ -34,12 +34,17 @@ int main(void)
     assert(cp0_keyboard_lvgl_key(KEY_7, 0) == 0);
     assert(cp0_keyboard_lvgl_key(127, 0) == 0); // SYM (KEY_COMPOSE) would be LV_KEY_DEL
 
-    // Other keys without text keep their Linux code (pages page with KEY_PAGEUP).
+    // Other keys without text report nothing, except the page keys settings pages use.
     assert(cp0_keyboard_lvgl_key(KEY_PAGEUP, 0) == KEY_PAGEUP);
     assert(cp0_keyboard_lvgl_key(KEY_PAGEDOWN, 0) == KEY_PAGEDOWN);
+    assert(cp0_keyboard_lvgl_key(KEY_F1, 0) == 0); // 59 would type ';'
+    assert(cp0_keyboard_lvgl_key(KEY_H, 8) == 0);  // Ctrl+H: a control character, not text
 
-    // Control characters (Ctrl+H = 8) are not text.
-    assert(cp0_keyboard_lvgl_key(KEY_H, 8) == KEY_H);
+    // Injected text (no key code, released) needs a synthetic press; real keys don't.
+    assert(cp0_keyboard_lvgl_needs_press(0, KBD_KEY_RELEASED, 'a'));
+    assert(!cp0_keyboard_lvgl_needs_press(KEY_A, KBD_KEY_RELEASED, 'a'));
+    assert(!cp0_keyboard_lvgl_needs_press(0, KBD_KEY_PRESSED, 'a'));
+    assert(!cp0_keyboard_lvgl_needs_press(0, KBD_KEY_RELEASED, 0));
 
     // Auto-repeat keeps the key pressed for LVGL.
     assert(cp0_keyboard_lvgl_key_pressed(KBD_KEY_PRESSED));
