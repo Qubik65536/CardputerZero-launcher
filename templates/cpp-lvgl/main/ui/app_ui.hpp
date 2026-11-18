@@ -60,6 +60,11 @@ const char *typed_text(const key_item &key);
 lv_obj_t *make_label(lv_obj_t *parent, const char *text, const lv_font_t *font, uint32_t color);
 // A plain rectangle; `opa` below LV_OPA_COVER shades what is under it.
 lv_obj_t *make_panel(lv_obj_t *parent, int x, int y, int width, int height, uint32_t color, lv_opa_t opa);
+// Makes LVGL's default theme (dark, Montserrat 14) the app's theme, with
+// `primary` as its accent color. Widgets created afterwards take their look from
+// it; calling it again restyles the existing ones (the Widgets demo's Color row).
+void set_theme(uint32_t primary);
+
 // One line of key help, centered at the bottom of a screen.
 lv_obj_t *make_hint(lv_obj_t *parent, const char *text);
 // "TAB next  ESC home", top right: how to leave a demo.
@@ -87,6 +92,7 @@ public:
 
 protected:
     lv_obj_t *root() const { return root_; }
+    bool shown() const;
     void animate();
     virtual void on_show() {}
     virtual void on_hide() {}

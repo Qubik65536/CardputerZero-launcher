@@ -8,93 +8,56 @@
 
 #include "input_keys.h"
 
-#include <algorithm>
-#include <cstring>
-
-// How keys reach the widgets
-// --------------------------
-// cp0_lvgl delivers every key twice: first as LV_EVENT_KEYBOARD to the active
-// screen (Linux key code + the text it types), then through LVGL's keypad input
-// device to the focused object of the page's lv_group, as LV_EVENT_KEY. That
-// second path cannot drive a form on the CardputerZero: the keyboard has no
-// arrow keys (F/X/Z/C turn into arrows, so they could not be typed into the text
-// field), letters arrive as key codes rather than characters, and LVGL only moves
-// the focus on LV_KEY_NEXT/LV_KEY_PREV, which the keyboard never sends.
+// Stock LVGL, plus one adapter for the keyboard
+// -----------------------------------------------
+// Everything on this screen is plain LVGL:
+//   - the look is LVGL's default theme (set_theme() in app_ui.cpp, called
+//     before any widget exists). The widgets get sizes, never colors; the Color
+//     row runs the theme again with another accent color and every widget follows;
+//   - the layout is flex: a scrolling column of rows, each a label and widgets;
+//   - the focus is an lv_group holding the form's widgets, which the keypad input
+//     device uses while the screen shows. The focused widget gets
+//     LV_STATE_FOCUS_KEY (the theme draws an outline) and scrolls into view;
+//   - cp0_lvgl's keypad input device sends each key to the focused widget as
+//     LV_EVENT_KEY: arrows (F/X/Z/C on the CardputerZero), ENTER, ESC,
+//     BACKSPACE ... as LVGL's keys, and the character for a key that types one.
+//     Each widget reacts the way it always does: the text area takes typing and
+//     BACKSPACE, DEL, LEFT/RIGHT, HOME/END; ENTER clicks a button, toggles the
+//     switch and the checkbox, opens the dropdown and picks an option;
+//     LEFT/RIGHT move the slider; ESC closes the dropdown;
+//   - the form reacts only to widget events (LV_EVENT_CLICKED,
+//     LV_EVENT_VALUE_CHANGED, LV_EVENT_READY), so a mouse click in the simulator
+//     window does exactly what the keys do.
 //
-// So while this screen shows it turns that path off
-// (cp0_keyboard_set_lvgl_keypad_intercept) and handles LV_EVENT_KEYBOARD
-// itself, using LVGL's own machinery for the rest:
-//   - the widgets sit in an lv_group: F/X call lv_group_focus_prev/next, and the
-//     focused widget gets LV_STATE_FOCUSED, which its styles react to;
-//   - Z/C and ENTER set the focused widget's value through its API and send the
-//     event LVGL itself would send (LV_EVENT_VALUE_CHANGED, LV_EVENT_CLICKED);
-//   - the form reacts to those events only, so a mouse click in the simulator
-//     window (or a touch screen) works the same way as the keys;
-//   - typed text goes into the lv_textarea with lv_textarea_add_text, and the
-//     keyboard is in text mode while the text field has the focus.
-// The same works on the device and in the simulator.
+// The CardputerZero keyboard needs one small adapter and one switch on top:
+//   - Moving the focus. LVGL moves it only on LV_KEY_NEXT/LV_KEY_PREV, which the
+//     keyboard never sends; it has no arrow keys either, so cp0_lvgl turns
+//     F/X/Z/C into UP/DOWN/LEFT/RIGHT. focus_keys_cb, an LV_EVENT_KEY
+//     preprocess handler on every widget of the form, turns UP/DOWN into
+//     lv_group_focus_prev/next, except while the dropdown's list is open (there
+//     UP/DOWN choose an option). (count_keys_cb gives the spinbox's LEFT/RIGHT,
+//     which would move between digits, to its value.)
+//   - Typing. While the text area has the focus the keyboard is in text mode, so
+//     F/X/Z/C type letters instead of acting as arrows
+//     (cp0_keyboard_set_input_context; cp0_app_set_text_input in the C API).
 
 namespace app {
 
 namespace {
 
-constexpr uint32_t kField = 0x080A0E;
-constexpr uint32_t kBorder = 0x3C4652;
-constexpr uint32_t kFace = 0x1C222A;
-
-// The form's rows, top to bottom; the status line sits above them.
-const char *const kRowLabels[] = {"Name", "Button", "Volume", "Count", "Color", "Sound"};
-enum Row { kNameRow, kButtonRow, kVolumeRow, kCountRow, kColorRow, kSoundRow };
-constexpr int kRowsTop = 18;
-constexpr int kRowHeight = 18;
-constexpr int kWidgetLeft = 72;  // labels on the left, widgets from here
-constexpr int kWidgetWidth = 242;
-constexpr int kSliderWidth = 176;
-constexpr int kVolumeStep = 5;
+constexpr int kFormTop = 18;     // below the status line
+constexpr int kLabelWidth = 62;  // the column of row labels
 constexpr uint32_t kMaxName = 24;
-constexpr uint32_t kPressMs = 10 * kFrameMs;  // how long the button shows as pressed
+constexpr const char *kFormHint = "F/X move  Z/C change  ENTER press";
+constexpr const char *kTypingHint = "type a name  ENTER next";
 
-struct Choice
-{
-    const char *name;
-    uint32_t color;
-};
+// The Color row: each template's language and GitHub's color for it, in the
+// dropdown's order. This template starts on its own language, C++.
+constexpr const char *kColorOptions = "Rust\nZig\nOCaml\nC++";
+constexpr uint32_t kColors[] = {0xDEA584, 0xEC915C, 0xEF7A08, 0xF34B7D};
+constexpr uint32_t kLanguageOption = 3;
 
-// The chooser's options: each template language and GitHub's color for it.
-constexpr Choice kChoices[] = {{"Rust", 0xDEA584}, {"Zig", 0xEC915C}, {"OCaml", 0xEF7A08}, {"C++", 0xF34B7D}};
-constexpr uint32_t kChoiceCount = sizeof(kChoices) / sizeof(kChoices[0]);
-
-uint32_t default_choice()
-{
-    for (uint32_t index = 0; index < kChoiceCount; ++index) {
-        if (std::strcmp(kChoices[index].name, kLanguage) == 0) return index;
-    }
-    return 0;
-}
-
-// The form's widgets are styled from scratch (no theme), flat like the rest of the app.
-void style_box(lv_obj_t *obj, uint32_t background)
-{
-    lv_obj_set_style_bg_color(obj, lv_color_hex(background), 0);
-    lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(obj, 1, 0);
-    lv_obj_set_style_border_color(obj, lv_color_hex(kBorder), 0);
-    lv_obj_set_style_text_font(obj, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(obj, lv_color_hex(kTextColor), 0);
-}
-
-lv_obj_t *make_box_button(lv_obj_t *parent, const char *text, int x, int y, int width)
-{
-    lv_obj_t *button = lv_button_create(parent);
-    lv_obj_remove_style_all(button);
-    style_box(button, kFace);
-    lv_obj_set_pos(button, x, y);
-    lv_obj_set_size(button, width, kRowHeight);
-    lv_obj_t *label = lv_label_create(button);
-    lv_label_set_text(label, text);
-    lv_obj_center(label);
-    return button;
-}
+constexpr lv_event_code_t kKeyPreprocess = static_cast<lv_event_code_t>(LV_EVENT_KEY | LV_EVENT_PREPROCESS);
 
 std::string trim(const std::string &text)
 {
@@ -103,244 +66,281 @@ std::string trim(const std::string &text)
     return text.substr(first, text.find_last_not_of(" \t") - first + 1);
 }
 
-} // namespace
-
-uint32_t WidgetsScreen::accent() const
+// One row of the form: a transparent flex row holding a fixed-width label;
+// the caller adds the row's widgets after it.
+lv_obj_t *make_row(lv_obj_t *form, const char *text)
 {
-    return kChoices[lv_roller_get_selected(chooser_)].color;
+    lv_obj_t *row = lv_obj_create(form);
+    lv_obj_remove_style_all(row);  // layout only: no background, border or padding
+    lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(row, 4, 0);  // room for the theme's focus outline around the widgets
+    lv_obj_set_style_pad_column(row, 6, 0);
+    lv_obj_t *label = lv_label_create(row);
+    lv_label_set_text(label, text);
+    lv_obj_set_width(label, kLabelWidth);
+    return row;
 }
+
+// The default theme pads widgets for bigger screens. On 320 x 150 the form
+// trims the vertical padding of the taller widgets to fit more rows.
+void compact(lv_obj_t *widget)
+{
+    lv_obj_set_style_pad_ver(widget, 4, 0);
+}
+
+lv_obj_t *make_button(lv_obj_t *parent, const char *text)
+{
+    lv_obj_t *button = lv_button_create(parent);
+    compact(button);
+    lv_obj_t *label = lv_label_create(button);
+    lv_label_set_text(label, text);
+    lv_obj_center(label);
+    return button;
+}
+
+// The adapter: F/X (UP/DOWN) move the focus to the previous/next widget.
+void focus_keys_cb(lv_event_t *event)
+{
+    const uint32_t key = lv_event_get_key(event);
+    if (key != LV_KEY_UP && key != LV_KEY_DOWN) return;
+    lv_obj_t *widget = lv_event_get_target_obj(event);
+    if (lv_obj_check_type(widget, &lv_dropdown_class) && lv_dropdown_is_open(widget)) return;
+    lv_group_t *group = lv_obj_get_group(widget);
+    if (key == LV_KEY_UP) lv_group_focus_prev(group);
+    else lv_group_focus_next(group);
+    lv_event_stop_processing(event);  // the widget itself never sees the key
+}
+
+// Z/C (LEFT/RIGHT) step the spinbox's value; nothing else edits it (typed
+// characters included: the spinbox is a text area underneath).
+void count_keys_cb(lv_event_t *event)
+{
+    lv_obj_t *spinbox = lv_event_get_target_obj(event);
+    const uint32_t key = lv_event_get_key(event);
+    if (key == LV_KEY_UP || key == LV_KEY_DOWN) return;  // focus moves
+    if (key == LV_KEY_LEFT) lv_spinbox_decrement(spinbox);
+    else if (key == LV_KEY_RIGHT) lv_spinbox_increment(spinbox);
+    lv_event_stop_processing(event);
+}
+
+// ENTER in the one-line text area: on to the next widget. The ENTER key is still
+// down; waiting for its release keeps it from clicking the newly focused button.
+void name_ready_cb(lv_event_t *event)
+{
+    lv_group_focus_next(lv_obj_get_group(lv_event_get_target_obj(event)));
+    if (lv_indev_t *keypad = lv_indev_active()) lv_indev_wait_release(keypad);
+}
+
+// The spinbox's -/+ buttons, as in LVGL's spinbox example: a click steps once,
+// holding the mouse button repeats.
+bool is_step_event(lv_event_t *event)
+{
+    const lv_event_code_t code = lv_event_get_code(event);
+    return code == LV_EVENT_SHORT_CLICKED || code == LV_EVENT_LONG_PRESSED_REPEAT;
+}
+
+void minus_cb(lv_event_t *event)
+{
+    if (is_step_event(event)) lv_spinbox_decrement(static_cast<lv_obj_t *>(lv_event_get_user_data(event)));
+}
+
+void plus_cb(lv_event_t *event)
+{
+    if (is_step_event(event)) lv_spinbox_increment(static_cast<lv_obj_t *>(lv_event_get_user_data(event)));
+}
+
+// The -/+ buttons are for the mouse: Z/C do the same from the keyboard. Keep
+// them out of every focus group (lv_button_create adds a button to the default
+// group, if there is one).
+lv_obj_t *make_step_button(lv_obj_t *row, const char *text)
+{
+    lv_obj_t *button = make_button(row, text);
+    lv_group_remove_obj(button);
+    return button;
+}
+
+// The root object gets LV_EVENT_DELETE before its children are deleted. Deleting
+// the group then means that deleting the focused widget moves no focus, so no
+// focus callback runs on widgets that are already gone.
+void root_deleted_cb(lv_event_t *event)
+{
+    lv_group_delete(static_cast<lv_group_t *>(lv_event_get_user_data(event)));
+}
+
+WidgetsScreen *screen_of(lv_event_t *event)
+{
+    return static_cast<WidgetsScreen *>(lv_event_get_user_data(event));
+}
+
+} // namespace
 
 void WidgetsScreen::set_status(const std::string &text)
 {
     lv_label_set_text(status_, text.c_str());
 }
 
-void WidgetsScreen::set_count(int count, const std::string &status)
+// The text area has the focus: keys type text, and the hint says so.
+void WidgetsScreen::set_typing(bool typing)
 {
-    count_ = count;
-    lv_label_set_text(count_value_, std::to_string(count_).c_str());
-    set_status(status);
+    lv_label_set_text(hint_, typing ? kTypingHint : kFormHint);
+    if (shown()) cp0_keyboard_set_input_context(typing ? KBD_INPUT_CONTEXT_TEXT : KBD_INPUT_CONTEXT_NAVIGATION);
 }
 
-// The row markers that are not LVGL focus styles: accent bar, label colors,
-// counter and chooser decorations, the hint, and the keyboard mode.
-void WidgetsScreen::refresh_focus()
+void WidgetsScreen::name_focus_cb(lv_event_t *event)
 {
-    const lv_obj_t *focused = lv_group_get_focused(group_);
-    const lv_color_t accent_color = lv_color_hex(accent());
-    for (size_t row = 0; row < kRowCount; ++row) {
-        const bool is_focused = widgets_[row] == focused;
-        if (is_focused) lv_obj_remove_flag(bars_[row], LV_OBJ_FLAG_HIDDEN);
-        else lv_obj_add_flag(bars_[row], LV_OBJ_FLAG_HIDDEN);
-        lv_obj_set_style_text_color(labels_[row], is_focused ? accent_color : lv_color_hex(kMutedColor), 0);
-    }
-    const lv_color_t counter_border = focused == counter_ ? accent_color : lv_color_hex(kBorder);
-    lv_obj_set_style_border_color(minus_, counter_border, 0);
-    lv_obj_set_style_border_color(plus_, counter_border, 0);
-    const lv_color_t arrows = focused == chooser_ ? accent_color : lv_color_hex(kMutedColor);
-    lv_obj_set_style_text_color(chooser_left_, arrows, 0);
-    lv_obj_set_style_text_color(chooser_right_, arrows, 0);
-
-    const bool typing = focused == name_;
-    lv_label_set_text(hint_, typing ? "type a name  ENTER next" : "F/X move  Z/C change  ENTER press");
-    if (!lv_obj_has_flag(root(), LV_OBJ_FLAG_HIDDEN))
-        cp0_keyboard_set_input_context(typing ? KBD_INPUT_CONTEXT_TEXT : KBD_INPUT_CONTEXT_NAVIGATION);
+    screen_of(event)->set_typing(lv_event_get_code(event) == LV_EVENT_FOCUSED);
 }
 
-// The accent color is whatever the chooser picked; every focus style uses it.
-void WidgetsScreen::apply_accent()
+void WidgetsScreen::hello_clicked_cb(lv_event_t *event)
 {
-    const lv_color_t color = lv_color_hex(accent());
-    lv_obj_set_style_border_color(name_, color, LV_STATE_FOCUSED);
-    lv_obj_set_style_bg_color(name_, color, static_cast<lv_style_selector_t>(LV_PART_CURSOR) | LV_STATE_FOCUSED);
-    lv_obj_set_style_border_color(button_, color, LV_STATE_FOCUSED);
-    lv_obj_set_style_bg_color(button_, color, LV_STATE_PRESSED);
-    lv_obj_set_style_bg_color(volume_, color, LV_PART_INDICATOR);
-    lv_obj_set_style_text_color(chooser_, color, LV_PART_SELECTED);
-    lv_obj_set_style_bg_color(swatch_, color, 0);
-    lv_obj_set_style_bg_color(sound_, color, static_cast<lv_style_selector_t>(LV_PART_INDICATOR) | LV_STATE_CHECKED);
-    lv_obj_set_style_text_color(status_, color, 0);
-    refresh_focus();
-}
-
-void WidgetsScreen::focus_cb(lv_group_t *group)
-{
-    if (auto *self = static_cast<WidgetsScreen *>(lv_group_get_user_data(group))) self->refresh_focus();
-}
-
-void WidgetsScreen::button_clicked_cb(lv_event_t *event)
-{
-    auto *self = static_cast<WidgetsScreen *>(lv_event_get_user_data(event));
+    WidgetsScreen *self = screen_of(event);
     const std::string name = trim(lv_textarea_get_text(self->name_));
     self->set_status("Hello, " + (name.empty() ? std::string("stranger") : name) + "!");
 }
 
-void WidgetsScreen::button_release_cb(lv_timer_t *timer)
+void WidgetsScreen::add_one_clicked_cb(lv_event_t *event)
 {
-    auto *self = static_cast<WidgetsScreen *>(lv_timer_get_user_data(timer));
-    lv_obj_remove_state(self->button_, LV_STATE_PRESSED);
-    self->release_timer_ = nullptr;  // a one-shot timer deletes itself
+    lv_obj_t *count = screen_of(event)->count_;
+    lv_spinbox_set_value(count, lv_spinbox_get_value(count) + 1);  // the spinbox reports the change
 }
 
 void WidgetsScreen::volume_changed_cb(lv_event_t *event)
 {
-    auto *self = static_cast<WidgetsScreen *>(lv_event_get_user_data(event));
+    WidgetsScreen *self = screen_of(event);
     const std::string value = std::to_string(lv_slider_get_value(self->volume_));
     lv_label_set_text(self->volume_value_, value.c_str());
     self->set_status("Volume " + value);
 }
 
-void WidgetsScreen::minus_clicked_cb(lv_event_t *event)
+void WidgetsScreen::count_changed_cb(lv_event_t *event)
 {
-    auto *self = static_cast<WidgetsScreen *>(lv_event_get_user_data(event));
-    self->set_count(self->count_ - 1, "Count " + std::to_string(self->count_ - 1));
+    WidgetsScreen *self = screen_of(event);
+    self->set_status("Count " + std::to_string(lv_spinbox_get_value(self->count_)));
 }
 
-void WidgetsScreen::plus_clicked_cb(lv_event_t *event)
+void WidgetsScreen::color_changed_cb(lv_event_t *event)
 {
-    auto *self = static_cast<WidgetsScreen *>(lv_event_get_user_data(event));
-    self->set_count(self->count_ + 1, "Count " + std::to_string(self->count_ + 1));
-}
-
-void WidgetsScreen::choice_changed_cb(lv_event_t *event)
-{
-    auto *self = static_cast<WidgetsScreen *>(lv_event_get_user_data(event));
-    self->apply_accent();
-    self->set_status(std::string("Color ") + kChoices[lv_roller_get_selected(self->chooser_)].name);
+    WidgetsScreen *self = screen_of(event);
+    const uint32_t color = kColors[lv_dropdown_get_selected(self->color_)];
+    set_theme(color);  // every themed widget in the app takes the new accent color
+    lv_obj_set_style_text_color(self->status_, lv_color_hex(color), 0);
+    char name[16];
+    lv_dropdown_get_selected_str(self->color_, name, sizeof(name));
+    self->set_status(std::string("Color ") + name);
 }
 
 void WidgetsScreen::sound_changed_cb(lv_event_t *event)
 {
-    auto *self = static_cast<WidgetsScreen *>(lv_event_get_user_data(event));
+    WidgetsScreen *self = screen_of(event);
     const char *state = lv_obj_has_state(self->sound_, LV_STATE_CHECKED) ? "on" : "off";
     lv_label_set_text(self->sound_value_, state);
     self->set_status(std::string("Sound ") + state);
 }
 
-void WidgetsScreen::make_name(int y)
+void WidgetsScreen::like_changed_cb(lv_event_t *event)
 {
-    name_ = lv_textarea_create(root());
-    lv_obj_remove_style_all(name_);
-    style_box(name_, kField);
+    WidgetsScreen *self = screen_of(event);
+    self->set_status(lv_obj_has_state(self->like_, LV_STATE_CHECKED) ? "Thanks!" : "Oh no");
+}
+
+// Every focusable widget: into the group (F/X order is the order of these
+// calls), the adapter for F/X, and scrolled into view when it gets the focus.
+void WidgetsScreen::add_to_form(lv_obj_t *widget)
+{
+    lv_group_add_obj(group_, widget);
+    lv_obj_add_event_cb(widget, focus_keys_cb, kKeyPreprocess, nullptr);
+    lv_obj_add_flag(widget, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+}
+
+void WidgetsScreen::make_name_row()
+{
+    lv_obj_t *row = make_row(form_, "Name");
+    name_ = lv_textarea_create(row);
     lv_textarea_set_one_line(name_, true);
     lv_textarea_set_placeholder_text(name_, "your name");
     lv_textarea_set_max_length(name_, kMaxName);
-    lv_obj_set_style_pad_hor(name_, 4, 0);
-    lv_obj_set_pos(name_, kWidgetLeft, y);
-    lv_obj_set_size(name_, kWidgetWidth, kRowHeight);
-    lv_obj_set_style_text_color(name_, lv_color_hex(kMutedColor), LV_PART_TEXTAREA_PLACEHOLDER);
-    // An empty focused field shows just the cursor: a solid block that does not blink.
-    lv_obj_set_style_text_opa(name_, LV_OPA_TRANSP,
-                              static_cast<lv_style_selector_t>(LV_PART_TEXTAREA_PLACEHOLDER) | LV_STATE_FOCUSED);
-    lv_obj_set_style_bg_opa(name_, LV_OPA_COVER, static_cast<lv_style_selector_t>(LV_PART_CURSOR) | LV_STATE_FOCUSED);
-    lv_obj_set_style_pad_right(name_, 4, LV_PART_CURSOR);
-    lv_obj_set_style_anim_duration(name_, 0, LV_PART_CURSOR);
+    lv_obj_set_flex_grow(name_, 1);
+    compact(name_);
+    add_to_form(name_);
+    lv_obj_add_event_cb(name_, name_focus_cb, LV_EVENT_FOCUSED, this);
+    lv_obj_add_event_cb(name_, name_focus_cb, LV_EVENT_DEFOCUSED, this);
+    lv_obj_add_event_cb(name_, name_ready_cb, LV_EVENT_READY, nullptr);
 }
 
-void WidgetsScreen::make_button(int y)
+void WidgetsScreen::make_buttons_row()
 {
-    button_ = make_box_button(root(), "Say hello", kWidgetLeft, y, 120);
-    lv_obj_set_style_text_color(button_, lv_color_hex(kBackgroundColor), LV_STATE_PRESSED);
-    lv_obj_add_event_cb(button_, button_clicked_cb, LV_EVENT_CLICKED, this);
+    lv_obj_t *row = make_row(form_, "Buttons");
+    lv_obj_t *hello = make_button(row, "Say hello");
+    add_to_form(hello);
+    lv_obj_add_event_cb(hello, hello_clicked_cb, LV_EVENT_CLICKED, this);
+    lv_obj_t *add_one = make_button(row, "Count +1");
+    add_to_form(add_one);
+    lv_obj_add_event_cb(add_one, add_one_clicked_cb, LV_EVENT_CLICKED, this);
 }
 
-void WidgetsScreen::make_volume(int y)
+void WidgetsScreen::make_volume_row()
 {
-    volume_ = lv_slider_create(root());
-    lv_obj_remove_style_all(volume_);
-    lv_obj_set_pos(volume_, kWidgetLeft, y + 7);
-    lv_obj_set_size(volume_, kSliderWidth, 4);
+    lv_obj_t *row = make_row(form_, "Volume");
+    volume_ = lv_slider_create(row);
     lv_slider_set_range(volume_, 0, 100);
     lv_slider_set_value(volume_, 50, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(volume_, lv_color_hex(kBorder), 0);
-    lv_obj_set_style_bg_opa(volume_, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_opa(volume_, LV_OPA_COVER, LV_PART_INDICATOR);
-    // The knob is the 4 px track height grown by its padding: 6 x 14.
-    lv_obj_set_style_bg_color(volume_, lv_color_hex(kMutedColor), LV_PART_KNOB);
-    lv_obj_set_style_bg_color(volume_, lv_color_hex(kTextColor),
-                              static_cast<lv_style_selector_t>(LV_PART_KNOB) | LV_STATE_FOCUSED);
-    lv_obj_set_style_bg_opa(volume_, LV_OPA_COVER, LV_PART_KNOB);
-    lv_obj_set_style_pad_hor(volume_, 1, LV_PART_KNOB);
-    lv_obj_set_style_pad_ver(volume_, 5, LV_PART_KNOB);
+    lv_obj_set_flex_grow(volume_, 1);
+    add_to_form(volume_);
     lv_obj_add_event_cb(volume_, volume_changed_cb, LV_EVENT_VALUE_CHANGED, this);
-
-    volume_value_ = make_label(root(), "50", &lv_font_montserrat_14, kTextColor);
-    lv_obj_set_pos(volume_value_, kWidgetLeft + kSliderWidth + 12, y + 1);
+    volume_value_ = lv_label_create(row);
+    lv_label_set_text(volume_value_, "50");
+    lv_obj_set_width(volume_value_, 30);
 }
 
-void WidgetsScreen::make_counter(int y)
+void WidgetsScreen::make_count_row()
 {
-    // One focusable container holding "-", the value and "+".
-    counter_ = make_panel(root(), kWidgetLeft, y, 108, kRowHeight, kBackgroundColor, LV_OPA_TRANSP);
-    minus_ = make_box_button(counter_, "-", 0, 0, 24);
-    plus_ = make_box_button(counter_, "+", 84, 0, 24);
-    lv_obj_add_event_cb(minus_, minus_clicked_cb, LV_EVENT_CLICKED, this);
-    lv_obj_add_event_cb(plus_, plus_clicked_cb, LV_EVENT_CLICKED, this);
-    count_value_ = make_label(counter_, "0", &lv_font_montserrat_14, kTextColor);
-    lv_obj_set_width(count_value_, 60);
-    lv_obj_set_style_text_align(count_value_, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_pos(count_value_, 24, 1);
+    lv_obj_t *row = make_row(form_, "Count");
+    lv_obj_t *minus = make_step_button(row, "-");
+    count_ = lv_spinbox_create(row);
+    lv_spinbox_set_range(count_, -999, 999);
+    lv_spinbox_set_digit_format(count_, 3, 0);
+    lv_obj_set_width(count_, 64);
+    compact(count_);
+    add_to_form(count_);
+    lv_obj_add_event_cb(count_, count_keys_cb, kKeyPreprocess, nullptr);
+    lv_obj_add_event_cb(count_, count_changed_cb, LV_EVENT_VALUE_CHANGED, this);
+    lv_obj_t *plus = make_step_button(row, "+");
+    lv_obj_add_event_cb(minus, minus_cb, LV_EVENT_ALL, count_);
+    lv_obj_add_event_cb(plus, plus_cb, LV_EVENT_ALL, count_);
 }
 
-void WidgetsScreen::make_chooser(int y)
+void WidgetsScreen::make_color_row()
 {
-    chooser_left_ = make_label(root(), "<", &lv_font_montserrat_14, kMutedColor);
-    lv_obj_set_pos(chooser_left_, kWidgetLeft, y + 1);
-    std::string options;
-    for (const Choice &choice : kChoices) options += std::string(options.empty() ? "" : "\n") + choice.name;
-    chooser_ = lv_roller_create(root());
-    lv_obj_remove_style_all(chooser_);
-    lv_obj_set_style_text_font(chooser_, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_font(chooser_, &lv_font_montserrat_14, LV_PART_SELECTED);
-    lv_obj_set_style_text_align(chooser_, LV_TEXT_ALIGN_CENTER, 0);
-    lv_roller_set_options(chooser_, options.c_str(), LV_ROLLER_MODE_NORMAL);
-    lv_roller_set_visible_row_count(chooser_, 1);
-    lv_roller_set_selected(chooser_, default_choice(), LV_ANIM_OFF);
-    lv_obj_set_pos(chooser_, kWidgetLeft + 12, y + 1);
-    lv_obj_set_width(chooser_, 56);
-    lv_obj_add_event_cb(chooser_, choice_changed_cb, LV_EVENT_VALUE_CHANGED, this);
-    chooser_right_ = make_label(root(), ">", &lv_font_montserrat_14, kMutedColor);
-    lv_obj_set_pos(chooser_right_, kWidgetLeft + 72, y + 1);
-    swatch_ = make_panel(root(), kWidgetLeft + 88, y + 2, 14, kRowHeight - 4, kLanguageColor, LV_OPA_COVER);
+    lv_obj_t *row = make_row(form_, "Color");
+    color_ = lv_dropdown_create(row);
+    lv_dropdown_set_options(color_, kColorOptions);
+    lv_dropdown_set_selected(color_, kLanguageOption);
+    lv_obj_set_width(color_, 100);
+    compact(color_);
+    add_to_form(color_);
+    lv_obj_add_event_cb(color_, color_changed_cb, LV_EVENT_VALUE_CHANGED, this);
 }
 
-void WidgetsScreen::make_switch(int y)
+void WidgetsScreen::make_sound_row()
 {
-    sound_ = lv_switch_create(root());
-    lv_obj_remove_style_all(sound_);
-    lv_obj_set_pos(sound_, kWidgetLeft, y + 2);
-    lv_obj_set_size(sound_, 32, kRowHeight - 4);
-    lv_obj_set_style_bg_color(sound_, lv_color_hex(kBorder), 0);
-    lv_obj_set_style_bg_opa(sound_, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_opa(sound_, LV_OPA_COVER, static_cast<lv_style_selector_t>(LV_PART_INDICATOR) | LV_STATE_CHECKED);
-    lv_obj_set_style_bg_color(sound_, lv_color_hex(kTextColor), LV_PART_KNOB);
-    lv_obj_set_style_bg_opa(sound_, LV_OPA_COVER, LV_PART_KNOB);
-    lv_obj_set_style_pad_all(sound_, -2, LV_PART_KNOB);
-    lv_obj_set_style_outline_color(sound_, lv_color_hex(kTextColor), LV_STATE_FOCUSED);
-    lv_obj_set_style_outline_width(sound_, 1, LV_STATE_FOCUSED);
-    lv_obj_set_style_outline_pad(sound_, 2, LV_STATE_FOCUSED);
+    lv_obj_t *row = make_row(form_, "Sound");
+    sound_ = lv_switch_create(row);
     lv_obj_add_state(sound_, LV_STATE_CHECKED);
+    add_to_form(sound_);
     lv_obj_add_event_cb(sound_, sound_changed_cb, LV_EVENT_VALUE_CHANGED, this);
-
-    sound_value_ = make_label(root(), "on", &lv_font_montserrat_14, kTextColor);
-    lv_obj_set_pos(sound_value_, kWidgetLeft + 40, y + 1);
+    sound_value_ = lv_label_create(row);
+    lv_label_set_text(sound_value_, "on");
 }
 
-void WidgetsScreen::make_rows()
+void WidgetsScreen::make_like_row()
 {
-    for (size_t row = 0; row < kRowCount; ++row) {
-        const int y = kRowsTop + static_cast<int>(row) * kRowHeight;
-        bars_[row] = make_panel(root(), 0, y, 3, kRowHeight, kLanguageColor, LV_OPA_COVER);
-        labels_[row] = make_label(root(), kRowLabels[row], &lv_font_montserrat_14, kMutedColor);
-        lv_obj_set_pos(labels_[row], 8, y + 1);
-    }
-    make_name(kRowsTop + kNameRow * kRowHeight);
-    make_button(kRowsTop + kButtonRow * kRowHeight);
-    make_volume(kRowsTop + kVolumeRow * kRowHeight);
-    make_counter(kRowsTop + kCountRow * kRowHeight);
-    make_chooser(kRowsTop + kColorRow * kRowHeight);
-    make_switch(kRowsTop + kSoundRow * kRowHeight);
-    widgets_ = {name_, button_, volume_, counter_, chooser_, sound_};
+    lv_obj_t *row = make_row(form_, "Like");
+    like_ = lv_checkbox_create(row);
+    lv_checkbox_set_text(like_, "I like LVGL");
+    add_to_form(like_);
+    lv_obj_add_event_cb(like_, like_changed_cb, LV_EVENT_VALUE_CHANGED, this);
 }
 
 WidgetsScreen::WidgetsScreen(lv_obj_t *parent) : Screen(parent)
@@ -348,102 +348,82 @@ WidgetsScreen::WidgetsScreen(lv_obj_t *parent) : Screen(parent)
     status_ = make_label(root(), "Try every widget", &lv_font_montserrat_14, kLanguageColor);
     lv_obj_set_pos(status_, 8, 0);
     make_demo_keys(root());
-    make_rows();
-    hint_ = make_hint(root(), "");
+
+    // The form: a flex column that scrolls when the rows don't fit. It keeps the
+    // theme's scrollbar but not its card background.
+    form_ = lv_obj_create(root());
+    lv_obj_set_pos(form_, 0, kFormTop);
+    lv_obj_set_size(form_, kContentWidth, kHintTop - kFormTop);
+    lv_obj_set_style_bg_opa(form_, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(form_, 0, 0);
+    lv_obj_set_style_pad_all(form_, 2, 0);
+    lv_obj_set_style_pad_row(form_, 0, 0);
+    lv_obj_set_flex_flow(form_, LV_FLEX_FLOW_COLUMN);
+
+    hint_ = make_hint(root(), kFormHint);
 
     group_ = lv_group_create();
-    lv_group_set_wrap(group_, true);
-    for (lv_obj_t *widget : widgets_) lv_group_add_obj(group_, widget);
-    lv_group_focus_obj(name_);
-    lv_group_set_user_data(group_, this);
-    lv_group_set_focus_cb(group_, focus_cb);
-    apply_accent();
+    lv_group_set_wrap(group_, true);  // X on the last widget goes back to the first
+    lv_obj_add_event_cb(root(), root_deleted_cb, LV_EVENT_DELETE, group_);
+
+    // The rows, top to bottom; F/X visit their widgets in this order.
+    make_name_row();
+    make_buttons_row();
+    make_volume_row();
+    make_count_row();
+    make_color_row();
+    make_sound_row();
+    make_like_row();
 }
 
 WidgetsScreen::~WidgetsScreen()
 {
-    if (release_timer_) lv_timer_delete(release_timer_);
-    lv_group_delete(group_);
-}
-
-// ENTER on the button: show it pressed for a moment and click it.
-void WidgetsScreen::press_button()
-{
-    lv_obj_add_state(button_, LV_STATE_PRESSED);
-    if (release_timer_) lv_timer_delete(release_timer_);
-    release_timer_ = lv_timer_create(button_release_cb, kPressMs, this);
-    lv_timer_set_repeat_count(release_timer_, 1);
-    lv_obj_send_event(button_, LV_EVENT_CLICKED, nullptr);
-}
-
-// Z/C (or left/right): step the focused widget's value.
-void WidgetsScreen::change(int step)
-{
-    const lv_obj_t *focused = lv_group_get_focused(group_);
-    if (focused == volume_) {
-        const int32_t value = lv_slider_get_value(volume_) + step * kVolumeStep;
-        lv_slider_set_value(volume_, std::clamp<int32_t>(value, 0, 100), LV_ANIM_OFF);
-        lv_obj_send_event(volume_, LV_EVENT_VALUE_CHANGED, nullptr);
-    } else if (focused == counter_) {
-        lv_obj_send_event(step < 0 ? minus_ : plus_, LV_EVENT_CLICKED, nullptr);
-    } else if (focused == chooser_) {
-        const uint32_t choice = (lv_roller_get_selected(chooser_) + kChoiceCount + step) % kChoiceCount;
-        lv_roller_set_selected(chooser_, choice, LV_ANIM_OFF);
-        lv_obj_send_event(chooser_, LV_EVENT_VALUE_CHANGED, nullptr);
-    } else if (focused == sound_) {
-        lv_obj_set_state(sound_, LV_STATE_CHECKED, !lv_obj_has_state(sound_, LV_STATE_CHECKED));
-        lv_obj_send_event(sound_, LV_EVENT_VALUE_CHANGED, nullptr);
-    }
-}
-
-// ENTER or SPACE on the focused widget.
-void WidgetsScreen::activate()
-{
-    const lv_obj_t *focused = lv_group_get_focused(group_);
-    if (focused == button_) press_button();
-    else if (focused == counter_) set_count(0, "Count reset");
-    else if (focused == chooser_ || focused == sound_) change(1);
+    // The page deletes its LVGL objects only after its screens are destroyed.
+    // Delete this screen's now, while their callbacks can still reach `this`
+    // (root_deleted_cb deletes the group first).
+    lv_obj_delete(root());
 }
 
 void WidgetsScreen::on_show()
 {
-    // Keys come only through LV_EVENT_KEYBOARD while the form shows (see the top of this file).
-    cp0_keyboard_set_lvgl_keypad_intercept(1);
-    refresh_focus();
+    // The keypad input device(s) use the form's group while the screen shows.
+    // The key that opened the screen (4, ENTER, TAB) is still being handled:
+    // lv_indev_wait_release keeps it from reaching the focused widget (ENTER
+    // would leave the text area, 4 would be typed into it).
+    for (lv_indev_t *indev = lv_indev_get_next(nullptr); indev; indev = lv_indev_get_next(indev)) {
+        if (lv_indev_get_type(indev) != LV_INDEV_TYPE_KEYPAD) continue;
+        previous_group_ = lv_indev_get_group(indev);
+        lv_indev_set_group(indev, group_);
+        lv_indev_wait_release(indev);
+    }
+    // Focus a widget, now from the keypad, so it gets LV_STATE_FOCUS_KEY (the
+    // theme's outline) and its LV_EVENT_FOCUSED handlers run: the one that had
+    // the focus, or the first time the first one (hidden widgets can't take the
+    // focus, so none has it yet).
+    if (lv_obj_t *focused = lv_group_get_focused(group_)) lv_group_focus_obj(focused);
+    else lv_group_focus_next(group_);
+    // LVGL 9.5 does not grow the drawing area of a widget that was never drawn
+    // when its new state also changes its layout, as the text area's cursor
+    // style does; without this the first outline would be clipped away.
+    lv_obj_refresh_ext_draw_size(lv_group_get_focused(group_));
 }
 
 void WidgetsScreen::on_hide()
 {
-    cp0_keyboard_set_lvgl_keypad_intercept(0);
+    lv_dropdown_close(color_);  // its list belongs to the LVGL screen, not to this container
+    for (lv_indev_t *indev = lv_indev_get_next(nullptr); indev; indev = lv_indev_get_next(indev)) {
+        if (lv_indev_get_group(indev) == group_) lv_indev_set_group(indev, previous_group_);
+    }
     cp0_keyboard_set_input_context(KBD_INPUT_CONTEXT_NAVIGATION);
 }
 
 Action WidgetsScreen::handle_key(const key_item &key)
 {
-    switch (key.key_code) {
-    case KEY_ESC: return Action::home();
-    case KEY_TAB: return Action::next();
-    // Real arrow keys always move the focus, even out of the text field.
-    case KEY_UP: lv_group_focus_prev(group_); return Action::stay();
-    case KEY_DOWN: lv_group_focus_next(group_); return Action::stay();
-    default: break;
-    }
-    if (lv_group_get_focused(group_) == name_) {
-        // In the text field F/X/Z/C are letters; ENTER moves on.
-        if (key.key_code == KEY_ENTER) lv_group_focus_next(group_);
-        else if (key.key_code == KEY_BACKSPACE) lv_textarea_delete_char(name_);
-        else if (const char *text = typed_text(key)) lv_textarea_add_text(name_, text);
-        return Action::stay();
-    }
-    switch (direction(key.key_code)) {
-    case Direction::Up: lv_group_focus_prev(group_); break;
-    case Direction::Down: lv_group_focus_next(group_); break;
-    case Direction::Left: change(-1); break;
-    case Direction::Right: change(1); break;
-    case Direction::None:
-        if (key.key_code == KEY_ENTER || key.key_code == KEY_SPACE) activate();
-        break;
-    }
+    // Only the app's keys; LVGL's keypad device delivers every key to the
+    // focused widget as well. ESC first closes an open dropdown list: LVGL gets
+    // the same ESC right after this and closes it.
+    if (key.key_code == KEY_ESC) return lv_dropdown_is_open(color_) ? Action::stay() : Action::home();
+    if (key.key_code == KEY_TAB) return Action::next();
     return Action::stay();
 }
 

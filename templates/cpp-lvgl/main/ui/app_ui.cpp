@@ -50,6 +50,14 @@ lv_obj_t *make_panel(lv_obj_t *parent, int x, int y, int width, int height, uint
     return panel;
 }
 
+void set_theme(uint32_t primary)
+{
+    lv_display_t *display = lv_display_get_default();
+    lv_theme_t *theme = lv_theme_default_init(display, lv_color_hex(primary), lv_palette_main(LV_PALETTE_BLUE),
+                                              true, &lv_font_montserrat_14);
+    lv_display_set_theme(display, theme);
+}
+
 lv_obj_t *make_hint(lv_obj_t *parent, const char *text)
 {
     lv_obj_t *hint = make_label(parent, text, &lv_font_montserrat_14, kMutedColor);
@@ -73,6 +81,11 @@ Screen::Screen(lv_obj_t *parent)
 Screen::~Screen()
 {
     if (timer_) lv_timer_delete(timer_);
+}
+
+bool Screen::shown() const
+{
+    return !lv_obj_has_flag(root_, LV_OBJ_FLAG_HIDDEN);
 }
 
 void Screen::frame_cb(lv_timer_t *timer)

@@ -6,15 +6,14 @@
 
 #pragma once
 
-// Demo 4, widgets: a small form of real LVGL widgets (lv_textarea, lv_button,
-// lv_slider, a -/+ counter, lv_roller, lv_switch) in an lv_group. F/X move the
-// focus, Z/C change the value, ENTER presses; the text field takes typing.
-// See widgets_screen.cpp for how keys reach the widgets.
+// Demo 4, widgets: a form of stock LVGL widgets with the default theme, laid
+// out with flex and driven by LVGL's own focus group and widget events:
+// lv_textarea, lv_button, lv_slider, lv_spinbox, lv_dropdown, lv_switch,
+// lv_checkbox. F/X move the focus, Z/C change the value, ENTER presses; the
+// text area takes typing. See widgets_screen.cpp for how the keys get there.
 
 #include "app_ui.hpp"
 
-#include <array>
-#include <cstdint>
 #include <string>
 
 namespace app {
@@ -33,56 +32,42 @@ protected:
     void on_hide() override;
 
 private:
-    static constexpr size_t kRowCount = 6;
+    void add_to_form(lv_obj_t *widget);
+    void make_name_row();
+    void make_buttons_row();
+    void make_volume_row();
+    void make_count_row();
+    void make_color_row();
+    void make_sound_row();
+    void make_like_row();
 
-    void make_rows();
-    void make_name(int y);
-    void make_button(int y);
-    void make_volume(int y);
-    void make_counter(int y);
-    void make_chooser(int y);
-    void make_switch(int y);
-
-    uint32_t accent() const;
     void set_status(const std::string &text);
-    void set_count(int count, const std::string &status);
-    void refresh_focus();
-    void apply_accent();
-    void press_button();
-    void change(int step);
-    void activate();
+    void set_typing(bool typing);
 
-    static void focus_cb(lv_group_t *group);
-    static void button_clicked_cb(lv_event_t *event);
-    static void button_release_cb(lv_timer_t *timer);
+    // Widget events. (The keyboard adapter and the other callbacks that need no
+    // screen are free functions in widgets_screen.cpp.)
+    static void name_focus_cb(lv_event_t *event);
+    static void hello_clicked_cb(lv_event_t *event);
+    static void add_one_clicked_cb(lv_event_t *event);
     static void volume_changed_cb(lv_event_t *event);
-    static void minus_clicked_cb(lv_event_t *event);
-    static void plus_clicked_cb(lv_event_t *event);
-    static void choice_changed_cb(lv_event_t *event);
+    static void count_changed_cb(lv_event_t *event);
+    static void color_changed_cb(lv_event_t *event);
     static void sound_changed_cb(lv_event_t *event);
+    static void like_changed_cb(lv_event_t *event);
 
-    lv_group_t *group_ = nullptr;
-    std::array<lv_obj_t *, kRowCount> bars_{};
-    std::array<lv_obj_t *, kRowCount> labels_{};
-    std::array<lv_obj_t *, kRowCount> widgets_{};  // the focusable object of each row
+    lv_group_t *group_ = nullptr;           // the form's focusable widgets, in F/X order
+    lv_group_t *previous_group_ = nullptr;  // the keypad's group before this screen showed
+    lv_obj_t *status_ = nullptr;
+    lv_obj_t *form_ = nullptr;  // the scrolling column of rows
+    lv_obj_t *hint_ = nullptr;
     lv_obj_t *name_ = nullptr;
-    lv_obj_t *button_ = nullptr;
     lv_obj_t *volume_ = nullptr;
     lv_obj_t *volume_value_ = nullptr;
-    lv_obj_t *counter_ = nullptr;
-    lv_obj_t *minus_ = nullptr;
-    lv_obj_t *plus_ = nullptr;
-    lv_obj_t *count_value_ = nullptr;
-    lv_obj_t *chooser_ = nullptr;
-    lv_obj_t *chooser_left_ = nullptr;
-    lv_obj_t *chooser_right_ = nullptr;
-    lv_obj_t *swatch_ = nullptr;
+    lv_obj_t *count_ = nullptr;
+    lv_obj_t *color_ = nullptr;
     lv_obj_t *sound_ = nullptr;
     lv_obj_t *sound_value_ = nullptr;
-    lv_obj_t *status_ = nullptr;
-    lv_obj_t *hint_ = nullptr;
-    lv_timer_t *release_timer_ = nullptr;
-    int count_ = 0;
+    lv_obj_t *like_ = nullptr;
 };
 
 } // namespace app

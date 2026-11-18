@@ -9,9 +9,9 @@ it runs as an SDL window on your desktop and full-screen on the device.
 It greets you with "Hello, C++!" over a wallpaper and opens four demos:
 **Colors** (a spinning RGB triangle and a color wheel drawn on an
 `lv_canvas`), **Motion** (a glowing ball to push around, with live physics
-numbers), **REPL** (a terminal-style calculator) and **Widgets** (real LVGL
-widgets: text field, button, slider, counter, roller, switch, driven by the
-keyboard). F/X choose, ENTER opens, TAB goes to the next demo, ESC goes back
+numbers), **REPL** (a terminal-style calculator) and **Widgets** (stock LVGL
+widgets with the default theme, flex layout and a focus group: text area,
+buttons, slider, spinbox, dropdown, switch, checkbox, driven by the keyboard). F/X choose, ENTER opens, TAB goes to the next demo, ESC goes back
 (and quits from home). Keep what you need, delete the rest.
 
 Full guide: [docs/app-development/cpp-lvgl.md](../../docs/app-development/cpp-lvgl.md).
@@ -47,12 +47,12 @@ The app appears on the home screen within a few seconds.
 | Path | What |
 | --- | --- |
 | `main/ui/hello_cardputer_page.cpp` | The page: owns the screens, shows one at a time, routes keys. Start here. |
-| `main/ui/app_ui.hpp` | Language name and color, palette, `Action`, key helpers, the `Screen` base class |
+| `main/ui/app_ui.hpp` | Language name and color, palette, `set_theme()`, `Action`, key helpers, the `Screen` base class |
 | `main/ui/home_screen.cpp` | Home screen: wallpaper, greeting, menu |
 | `main/ui/colors_screen.cpp`, `motion_screen.cpp`, `repl_screen.cpp`, `widgets_screen.cpp` | The four demos (`widgets_screen.cpp` explains how keys drive LVGL widgets on the device) |
 | `main/ui/pixel_canvas.cpp` | Pixel drawing on an `lv_canvas`: `fill_rect`, `fill_circle`, `draw_line`, ... (used by Colors and Motion) |
 | `main/ui/calc.cpp` | The REPL's calculator language (plain C++17, no LVGL) |
-| `main/src/main.cpp` | Entry point: runs the page until ESC on the home screen |
+| `main/src/main.cpp` | Entry point: sets the theme, runs the page until ESC on the home screen |
 | `main/SConstruct` | Sources, libraries, executable name |
 | `APPLaunch/applications/hello-cardputer.desktop` | Home-screen entry (name, icon, command) |
 | `APPLaunch/share/images/hello-cardputer_100.png` | 100x100 icon (`scripts/make_app_icon.py` makes new ones) |
